@@ -200,7 +200,6 @@ CREATE TABLE IF NOT EXISTS historial_llamadas (
 
 
 def asegurar_columnas():
-  # Asegurar columnas en clientes
   columnas_requeridas_clientes = {
       "nombre": "TEXT",
       "apellido": "TEXT",
@@ -232,7 +231,6 @@ def asegurar_columnas():
       except:
         pass
 
-  # Asegurar columnas personales en usuarios
   columnas_requeridas_usuarios = {
       "nombre_completo": "TEXT",
       "apellido": "TEXT",
@@ -333,7 +331,6 @@ if CURSOR.fetchone()[0] == 0:
   CONN.commit()
 
 
-# --- FUNCIONES AUXILIARES ---
 def autenticar(usuario, password):
   CURSOR.execute(
       "SELECT usuario, rol FROM usuarios WHERE usuario = ? AND password = ?",
@@ -461,7 +458,6 @@ def cargar_base_general(df_cargado):
   return len(registros)
 
 
-# --- MODAL PARA CREAR PROSPECTO ---
 @st.dialog("➕ Registrar Nuevo Prospecto")
 def modal_crear_prospecto(usuario_actual, rol_actual):
   with st.form("form_modal_nuevo_prospecto"):
@@ -566,9 +562,7 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
 def renderizar_bloque_con_tabla(df_entrada, key_suffix):
   df = df_entrada.copy()
 
-  # --- MENÚ UNIFICADO DESPLEGABLE CON MULTI-FILTROS ACUMULATIVOS Y BOTÓN DE RESET ---
   with st.popover("⚙️ Opciones de Tabla y Multi-Filtros Avanzados"):
-    # Botones generales de selección rápida
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
       if st.button("☑ Seleccionar Todos", key=f"btn_sel_all_{key_suffix}"):
@@ -584,7 +578,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
     st.markdown("---")
     st.markdown("##### 🗂️ Panel de Multi-Filtros Acumulativos")
 
-    # BOTÓN PARA REINICIAR / BORRAR TODOS LOS FILTROS ANTES DE ESTATUS DE TELÉFONO
     if st.button(
         "🔄 Restablecer / Borrar Filtros",
         key=f"btn_reset_filtros_{key_suffix}",
@@ -602,7 +595,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
 
     st.markdown("---")
 
-    # 1. Filtro de Estatus Telefónico Acumulativo
     filtro_estado_tel = st.selectbox(
         "📞 Estatus de Teléfonos:",
         [
@@ -615,7 +607,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
         key=f"filtro_tel_est_{key_suffix}",
     )
 
-    # 2. Mercado / Dependencia Acumulativo
     if "sector" in df.columns:
       mercados_disp = ["Todos"] + sorted(
           [str(x) for x in df["sector"].dropna().unique() if str(x).strip()]
@@ -628,7 +619,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
     else:
       filtro_mercado = "Todos"
 
-    # 3. Estatus General del Prospecto Acumulativo
     if "estatus" in df.columns:
       estatus_disp = ["Todos"] + sorted(
           [str(x) for x in df["estatus"].dropna().unique() if str(x).strip()]
@@ -641,7 +631,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
     else:
       filtro_estatus_gral = "Todos"
 
-    # 4. Usuario Asignado (Telefonista o Asesor)
     if "telefonista_asignada" in df.columns:
       usuarios_disp = ["Todos"] + sorted(
           [
@@ -660,7 +649,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
     else:
       filtro_usuario = "Todos"
 
-    # 5. Edad (Filtro por Rango)
     st.markdown("---")
     usar_filtro_edad = st.checkbox(
         "👥 Filtrar por Rango de Edad", key=f"chk_edad_{key_suffix}"
@@ -684,7 +672,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
             key=f"e_max_{key_suffix}",
         )
 
-    # 6. Filtro Avanzado para Fecha de Dividendos
     st.markdown("---")
     usar_filtro_div = st.checkbox(
         "📅 Filtrar por Fecha de Dividendos", key=f"chk_div_{key_suffix}"
@@ -752,7 +739,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
             key=f"anio_comp_div_{key_suffix}",
         )
 
-    # 7. Filtro Avanzado para Fecha de Asignación (ult_fecha_asignacion)
     st.markdown("---")
     usar_filtro_asig = st.checkbox(
         "📋 Filtrar por Fecha de Asignación", key=f"chk_asig_{key_suffix}"
@@ -820,7 +806,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
             key=f"anio_comp_asig_{key_suffix}",
         )
 
-    # 8. Filtro Avanzado para Fecha de Último Movimiento
     st.markdown("---")
     usar_filtro_mov = st.checkbox(
         "🕒 Filtrar por Fecha de Último Movimiento", key=f"chk_mov_{key_suffix}"
@@ -888,7 +873,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
             key=f"anio_comp_mov_{key_suffix}",
         )
 
-  # --- APLICAR TODOS LOS MULTI-FILTROS ACUMULATIVOS ---
   if (
       st.session_state.get(f"filtro_tel_est_{key_suffix}", "Todos") != "Todos"
       and "estado_tel1" in df.columns
@@ -1047,7 +1031,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
 
   st.session_state["lista_rfcs_navegacion"] = df["rfc"].tolist()
 
-  # PAGINACIÓN FIJA DE 100 EN 100 REGISTROS
   cant_por_pagina = 100
   total_filas = len(df)
 
@@ -1119,7 +1102,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
   return editor_res
 
 
-# --- CONTROL DE SESIÓN ---
 if "usuario_logueado" not in st.session_state:
   st.session_state["usuario_logueado"] = None
   st.session_state["rol"] = None
@@ -1130,7 +1112,6 @@ if "prospecto_editar_rfc" not in st.session_state:
 if "lista_rfcs_navegacion" not in st.session_state:
   st.session_state["lista_rfcs_navegacion"] = []
 
-# --- CABECERA PRINCIPAL CON LOGOTIPO GP Y GRUPO PINZÓN FORZADO EN VERDE METLIFE ---
 st.markdown(
     """
     <div style="background: linear-gradient(135deg, #002B49 0%, #0072CE 100%); padding: 1.5rem; border-radius: 12px; color: white; margin-bottom: 1.5rem; box-shadow: 0 4px 12px rgba(0,43,73,0.15); border-bottom: 4px solid #78BE20; display: flex; align-items: center; gap: 20px;">
@@ -1147,7 +1128,6 @@ st.markdown(
 )
 
 if st.session_state["usuario_logueado"] is None:
-  # LOGIN CENTRADO EN LA PANTALLA
   _, col_centro, _ = st.columns([1, 1.5, 1])
   with col_centro:
     st.markdown("### 🔑 Iniciar Sesión en el Sistema")
@@ -1186,7 +1166,6 @@ else:
         "📊 Reportes de Citas y Asistencias",
     ]
 
-  # --- BARRA SUPERIOR CON BOTÓN TIPO PUNTITOS (POPOVER) EN LA PARTE IZQUIERDA Y USUARIO A LA DERECHA ---
   col_menu_izq, col_info_der = st.columns([1, 3])
 
   with col_menu_izq:
@@ -1210,9 +1189,6 @@ else:
 
   st.markdown("---")
 
-  # ---------------------------------------------------------
-  # VISTA: FICHA DETALLADA COMPLETA DEL PROSPECTO
-  # ---------------------------------------------------------
   if st.session_state["prospecto_editar_rfc"] is not None:
     rfc_actual = st.session_state["prospecto_editar_rfc"]
     lista_rfcs = st.session_state["lista_rfcs_navegacion"]
@@ -1254,7 +1230,6 @@ else:
         )
         n_mov = st.session_state.get(f"ffum_{rfc_actual}", parsear_a_date(row[11]))
 
-        # Estados de los teléfonos
         est_t1 = st.session_state.get(f"est_t1_{rfc_actual}", row[16])
         est_t2 = st.session_state.get(f"est_t2_{rfc_actual}", row[17])
         est_t3 = st.session_state.get(f"est_t3_{rfc_actual}", row[18])
@@ -1385,7 +1360,6 @@ else:
         st.markdown("---")
         st.markdown("#### 📞 Control de Números Telefónicos y Estatus")
 
-        # TELÉFONO 1
         t1_val = str(row[3] or "")
         est_t1_val = row[16] if row[16] else "Sin marcar"
         opciones_estados = [
@@ -1413,7 +1387,6 @@ else:
               key=f"est_t1_{rfc_actual}",
           )
 
-        # TELÉFONO 2
         t2_val = str(row[4] or "")
         est_t2_val = row[17] if row[17] else "Sin marcar"
         idx2 = (
@@ -1435,7 +1408,6 @@ else:
               key=f"est_t2_{rfc_actual}",
           )
 
-        # TELÉFONO 3
         t3_val = str(row[5] or "")
         est_t3_val = row[18] if row[18] else "Sin marcar"
         idx3 = (
@@ -1667,15 +1639,20 @@ else:
       if opcion == "1. Cargar Base General":
         st.header("📥 Cargar Base General")
         archivo = st.file_uploader(
-            "Sube tu archivo (.xlsx o .csv)", type=["xlsx", "csv"]
+            "Sube tu archivo (.xlsx o .csv)", type=["xlsx", "xls", "csv"]
         )
         if archivo is not None:
           try:
-            df_cargado = (
-                pd.read_csv(archivo)
-                if archivo.name.endswith(".csv")
-                else pd.read_excel(archivo)
-            )
+            nombre_archivo = archivo.name.lower()
+            if nombre_archivo.endswith(".csv"):
+              try:
+                df_cargado = pd.read_csv(archivo, encoding="utf-8")
+              except UnicodeDecodeError:
+                archivo.seek(0)
+                df_cargado = pd.read_csv(archivo, encoding="latin1")
+            else:
+              df_cargado = pd.read_excel(archivo, engine="openpyxl")
+
             st.dataframe(df_cargado.head(10), use_container_width=True)
             if st.button("Guardar en Banco General"):
               total = cargar_base_general(df_cargado)
