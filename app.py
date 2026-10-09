@@ -11,20 +11,15 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-    /* Estilo general de la página */
     .block-container {
         padding-top: 1.5rem !important;
         padding-bottom: 2rem !important;
         background-color: #f4f7f6;
     }
-    
-    /* Títulos secundarios y generales */
     h2, h3 {
         color: #002B49 !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
-
-    /* Botones generales */
     .stButton>button {
         background-color: #0072CE;
         color: white;
@@ -39,15 +34,11 @@ st.markdown(
         color: #ffffff;
         box-shadow: 0 4px 12px rgba(0, 114, 206, 0.3);
     }
-
-    /* Botones de Selección / Marcar Todos en verde */
     button[kind="secondary"] {
         background-color: #78BE20 !important;
         color: white !important;
         border: none !important;
     }
-
-    /* Tablas personalizadas con Encabezado Verde MetLife */
     .custom-table {
         width: 100%;
         border-collapse: collapse;
@@ -74,14 +65,10 @@ st.markdown(
     .custom-table tr:hover {
         background-color: #f1f5f9;
     }
-
-    /* Forzar encabezados de tablas nativas de Streamlit a verde MetLife */
     [data-testid="stDataFrame"] th, div[data-testid="stTable"] th {
         background-color: #78BE20 !important;
         color: white !important;
     }
-
-    /* Tarjetas de Métricas con detalle en Verde MetLife */
     [data-testid="stMetric"] {
         background-color: #ffffff;
         padding: 15px;
@@ -95,7 +82,6 @@ st.markdown(
 )
 
 
-# --- FUNCIONES DE UTILIDAD PARA FECHAS Y EDAD ---
 def calcular_edad_desde_rfc(rfc):
   if not rfc or len(rfc.strip()) < 10 or str(rfc).startswith("TEMP_"):
     return "S/D"
@@ -104,11 +90,9 @@ def calcular_edad_desde_rfc(rfc):
     yy = int(limpio[4:6])
     mm = int(limpio[6:8])
     dd = int(limpio[8:10])
-
     anio_actual = datetime.today().year
     siglo = 2000 if yy <= (anio_actual % 100) else 1900
     anio = siglo + yy
-
     f_nac = datetime(anio, mm, dd)
     hoy = datetime.today()
     edad = (
@@ -144,7 +128,6 @@ def parsear_a_date(val):
   return datetime.today().date()
 
 
-# --- BASE DE DATOS Y MIGRACIÓN AUTOMÁTICA ---
 CONN = sqlite3.connect("sistema_citas.db", check_same_thread=False)
 CURSOR = CONN.cursor()
 
@@ -245,7 +228,6 @@ def asegurar_columnas():
         CURSOR.execute(f"ALTER TABLE usuarios ADD COLUMN {col} {tipo}")
       except:
         pass
-
   CONN.commit()
 
 
@@ -380,7 +362,6 @@ def limpiar_val(val):
 def cargar_base_general(df_cargado):
   registros = []
   df_cargado.columns = [str(col).strip().upper() for col in df_cargado.columns]
-
   contador_sin_rfc = 1
   for _, fila in df_cargado.iterrows():
     nom = limpiar_val(fila.get("NOMBRE", ""))
@@ -393,7 +374,6 @@ def cargar_base_general(df_cargado):
     t1 = limpiar_val(fila.get("TEL1", ""))
     t2 = limpiar_val(fila.get("TEL2", ""))
     t3 = limpiar_val(fila.get("TEL3", ""))
-
     tels_disponibles = [t for t in [t1, t2, t3] if t and t != "0"]
     telefono_principal = (
         " / ".join(tels_disponibles) if tels_disponibles else "Sin Teléfono"
@@ -452,7 +432,6 @@ def cargar_base_general(df_cargado):
           reg,
       )
     except Exception as e:
-      print("Error insertando registro:", e)
       pass
   CONN.commit()
   return len(registros)
@@ -512,7 +491,6 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
         tels_disp = [t for t in [tel1, tel2, tel3] if t]
         telefono_final = " / ".join(tels_disp) if tels_disp else "Sin Teléfono"
         edad_calc = calcular_edad_desde_rfc(rfc)
-
         fecha_hoy_str = datetime.today().strftime("%Y/%m/%d")
         obs_tel_final = (
             f"({fecha_hoy_str} - {usuario_actual}) {obs_tel}" if obs_tel else ""
@@ -562,15 +540,43 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
 def renderizar_bloque_con_tabla(df_entrada, key_suffix):
   df = df_entrada.copy()
 
+  cant_por_pagina = 100
+  total_filas = len(df)
+  total_paginas = (
+      max(1, (total_filas - 1) // cant_por_pagina + 1)
+      if total_filas > 0
+      else 1
+  )
+
   with st.popover("⚙️ Opciones de Tabla y Multi-Filtros Avanzados"):
+    seleccionados_previos_global = st.session_state.get(
+        f"sel_rfcs_{key_suffix}", []
+    )
+
+    col_pop1, col_pop2 = st.columns([1.6, 1.4])
+    with col_pop1:
+      if st.button(
+          "✅ Seleccionar 100 de esta página",
+          key=f"btn_sel_pagina_{key_suffix}",
+          use_container_width=True,
+      ):
+        pag_actual = st.session_state.get(f"pag_num_{key_suffix}", 1)
+        inicio_p = (pag_actual - 1) * cant_por_pagina
+        fin_p = min(inicio_p + cant_por_pagina, total_filas)
+        rfcs_pagina = df.iloc[inicio_p:fin_p]["rfc"].tolist()
+        nuevos_totales = list(set(seleccionados_previos_global + rfcs_pagina))
+        st.session_state[f"sel_rfcs_{key_suffix}"] = nuevos_totales
+        st.rerun()
+
+    with col_pop2:
+      st.markdown(
+          f"📌 **Seleccionados:** `{len(seleccionados_previos_global)}`"
+      )
+
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-      if st.button("☑ Seleccionar Todos", key=f"btn_sel_all_{key_suffix}"):
-        st.session_state[f"sel_rfcs_{key_suffix}"] = df["rfc"].tolist()
-        st.rerun()
-    with col_btn2:
       if st.button(
-          "❌ Desmarcar Todos", key=f"btn_desel_all_{key_suffix}"
+          "❌ Desmarcar Todos", key=f"btn_desel_all_global_{key_suffix}"
       ):
         st.session_state[f"sel_rfcs_{key_suffix}"] = []
         st.rerun()
@@ -1025,27 +1031,24 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
   if "Seleccionar" not in df.columns:
     df.insert(0, "Seleccionar", False)
 
-  state_key = f"selected_rfc_{key_suffix}"
-  if state_key not in st.session_state:
-    st.session_state[state_key] = None
-
   st.session_state["lista_rfcs_navegacion"] = df["rfc"].tolist()
 
-  cant_por_pagina = 100
-  total_filas = len(df)
+  total_filas_filtradas = len(df)
+  total_paginas_filtradas = (
+      max(1, (total_filas_filtradas - 1) // cant_por_pagina + 1)
+      if total_filas_filtradas > 0
+      else 1
+  )
 
-  if total_filas > cant_por_pagina:
-    total_paginas = (total_filas // cant_por_pagina) + (
-        1 if total_filas % cant_por_pagina > 0 else 0
-    )
+  if total_filas_filtradas > cant_por_pagina:
     pagina_actual = st.selectbox(
-        f"📄 Páginas disponibles (Mostrando bloques de 100 de {total_filas}"
+        f"📄 Páginas disponibles (Mostrando bloques de 100 de {total_filas_filtradas}"
         " registros coincidentes):",
-        range(1, total_paginas + 1),
+        range(1, total_paginas_filtradas + 1),
         key=f"pag_num_{key_suffix}",
     )
     inicio = (pagina_actual - 1) * cant_por_pagina
-    fin = inicio + cant_por_pagina
+    fin = min(inicio + cant_por_pagina, total_filas_filtradas)
     df_a_mostrar = df.iloc[inicio:fin].copy()
   else:
     df_a_mostrar = df.copy()
@@ -1239,7 +1242,6 @@ else:
         telefono_general = (
             " / ".join(tels_disp) if tels_disp else "Sin Teléfono"
         )
-
         asignacion_final = row[14]
         estatus_final = row[15]
 
@@ -1298,7 +1300,6 @@ else:
             st.warning("⚠️ Estás en el primer registro.")
         else:
           st.session_state["prospecto_editar_rfc"] = None
-
         st.rerun()
 
       col_top1, col_nav_ant, col_nav_sig, col_top2 = st.columns(
@@ -1308,15 +1309,12 @@ else:
         st.caption(
             f"📍 Viendo Registro **{pos_actual + 1} de {total_prospectos}**"
         )
-
       with col_nav_ant:
         if st.button("⬅️", use_container_width=True, key="f_ant"):
           ejecutar_guardado_y_salto("anterior")
-
       with col_nav_sig:
         if st.button("➡️", use_container_width=True, key="f_sig"):
           ejecutar_guardado_y_salto("siguiente")
-
       with col_top2:
         if st.button("❌ Cerrar", use_container_width=True, key="c_ficha"):
           ejecutar_guardado_y_salto("cerrar")
@@ -1525,12 +1523,10 @@ else:
         detalle_accion = st.text_area(
             "Detalle / Observaciones de la llamada o recado:"
         )
-
         usa_agenda = accion_llamada in ["Cita", "Posible Asistencia"]
 
         if usa_agenda:
           f_cita_input = st.date_input("Fecha de Cita", value=datetime.today())
-
           bloques_horas = []
           for hora_h in range(9, 17):
             for min_m in [0, 30]:
@@ -1556,7 +1552,6 @@ else:
 
         if btn_guardar_llamada:
           ahora_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
           if usa_agenda:
             guardar_cita(
                 rfc_actual,
@@ -1599,7 +1594,6 @@ else:
             st.success(
                 f"✅ ¡{accion_llamada} registrado en el historial con éxito!"
             )
-
           CONN.commit()
           st.rerun()
 
@@ -1671,7 +1665,6 @@ else:
             " estatus, estado_tel1, estado_tel2, estado_tel3 FROM clientes",
             CONN,
         )
-
         if df_banco.empty:
           st.warning("No hay clientes registrados.")
         else:
@@ -1679,20 +1672,17 @@ else:
 
       elif opcion == "3. Gestión y Asignación de Prospectos":
         st.header("🔄 Gestión y Asignación de Prospectos")
-
         col_busq, col_filt, col_crear = st.columns([2, 2, 1])
 
         with col_busq:
           busqueda = st.text_input(
               "🔎 Buscar por RFC, Nombre, Apellido o Teléfono:"
           )
-
         with col_filt:
           st.markdown(
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
           activar_filtros = st.toggle("🔍 Mostrar Filtros Avanzados")
-
         with col_crear:
           st.markdown(
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
@@ -1738,7 +1728,6 @@ else:
               filtro_dependencia = st.selectbox(
                   "Dependencia / Sector:", ["Todas"] + deps_db
               )
-
             with col_fb2:
               estatus_db = [
                   row[0]
@@ -1749,7 +1738,6 @@ else:
               filtro_estatus_sel = st.selectbox(
                   "Estatus:", ["Todos"] + estatus_db
               )
-
             with col_fb3:
               tels_db = obtener_usuarios_por_rol(
                   "Telefonista"
@@ -1763,7 +1751,6 @@ else:
           condiciones.append(
               f"(rfc LIKE '%{busqueda}%' OR nombre LIKE '%{busqueda}%' OR apellido LIKE '%{busqueda}%' OR tel1 LIKE '%{busqueda}%')"
           )
-
         if filtro_campo_fecha != "Sin filtro de fecha":
           columna_bd_map = {
               "Fecha Último Movimiento": "fecha_ult_mov",
@@ -1774,13 +1761,10 @@ else:
           condiciones.append(
               f"({col_sql} BETWEEN '{filtro_f_ini}' AND '{filtro_f_fin}')"
           )
-
         if filtro_dependencia != "Todas":
           condiciones.append(f"sector = '{filtro_dependencia}'")
-
         if filtro_estatus_sel != "Todos":
           condiciones.append(f"estatus = '{filtro_estatus_sel}'")
-
         if filtro_asignado_sel != "Todos":
           condiciones.append(
               f"telefonista_asignada = '{filtro_asignado_sel}'"
@@ -1801,8 +1785,10 @@ else:
           editor_res = renderizar_bloque_con_tabla(
               df_resultados, key_suffix="gestion_admin"
           )
-          seleccionados = editor_res[editor_res["Seleccionar"] == True]
-          cant_seleccionados = len(seleccionados)
+          rfcs_seleccionados_global = st.session_state.get(
+              "sel_rfcs_gestion_admin", []
+          )
+          cant_seleccionados = len(rfcs_seleccionados_global)
 
           st.markdown("---")
           st.subheader("⚡ Actualización y Asignación Masiva")
@@ -1833,7 +1819,7 @@ else:
                   " cambios."
               )
             else:
-              rfcs_a_cambiar = seleccionados["rfc"].tolist()
+              rfcs_a_cambiar = rfcs_seleccionados_global
               rfcs_str = ",".join([f"'{r}'" for r in rfcs_a_cambiar])
               CURSOR.execute(
                   "UPDATE clientes SET telefonista_asignada ="
@@ -1850,12 +1836,10 @@ else:
 
       elif opcion == "4. Reporte de Citas y Eficiencia":
         st.header("📈 Reporte de Citas y Asistencias")
-
         periodo_rep = st.selectbox(
             "Selecciona Periodo de Reporte:",
             ["Diario", "Semanal", "Mensual", "Anual", "Personalizado"],
         )
-
         if periodo_rep == "Personalizado":
           col_f1, col_f2 = st.columns(2)
           with col_f1:
@@ -1876,7 +1860,6 @@ else:
                 "Filtrar por Telefonista/Agente:",
                 ["Todas"] + obtener_usuarios_por_rol("Telefonista"),
             )
-
           if periodo_rep == "Diario":
             filtro_fecha = f"fecha = '{fecha_rep}'"
           elif periodo_rep == "Semanal":
@@ -1892,7 +1875,6 @@ else:
         query_citas = f"SELECT * FROM citas WHERE {filtro_fecha}"
         if tele_filtro != "Todas":
           query_citas += f" AND agente = '{tele_filtro}'"
-
         df_rep = pd.read_sql_query(query_citas, CONN)
 
         st.markdown("---")
@@ -1937,7 +1919,6 @@ else:
 
       elif opcion == "5. Gestión de Usuarios y Roles":
         st.header("👥 Panel de Administración de Usuarios y Fichas")
-
         tab_crear, tab_editar = st.tabs(
             ["➕ Crear Nuevo Usuario", "✏️ Editar / Restablecer Usuarios"]
         )
@@ -1961,7 +1942,6 @@ else:
             btn_guardar_usr = st.form_submit_button(
                 "💾 Crear Usuario", use_container_width=True
             )
-
             if btn_guardar_usr:
               if not nuevo_usr.strip() or not nuevo_pwd.strip():
                 st.error("⚠️ Usuario y contraseña son obligatorios.")
@@ -2133,7 +2113,6 @@ else:
     elif rol == "Telefonista":
       if opcion == "Mis Prospectos y Gestión":
         st.header(f"📞 Mis Prospectos Asignados ({usuario})")
-
         col_busq, col_vacio, col_btn_crear = st.columns([1, 1.8, 1.2])
         with col_busq:
           busqueda_tele = st.text_input("🔎 Buscar en mis prospectos:")
@@ -2162,9 +2141,7 @@ else:
               + busqueda_tele
               + "%')"
           )
-
         df_prospectos = pd.read_sql_query(query_tele, CONN)
-
         if df_prospectos.empty:
           st.info("No tienes prospectos asignados actualmente.")
         else:
@@ -2172,7 +2149,6 @@ else:
 
       elif opcion == "Mis Citas Agendadas":
         st.header(f"📅 Agenda Diaria y Actividad ({usuario})")
-
         col_filtro_t1, col_filtro_t2 = st.columns(2)
         with col_filtro_t1:
           tipo_agenda_sel = st.selectbox(
@@ -2189,7 +2165,6 @@ else:
           fecha_agenda_sel = st.date_input(
               "Filtrar por Fecha:", value=datetime.today()
           )
-
         fecha_str_sel = fecha_agenda_sel.strftime("%Y-%m-%d")
 
         if tipo_agenda_sel in ["Citas Agendadas", "Posible Asistencia"]:
@@ -2236,7 +2211,6 @@ else:
     else:
       if opcion == "Mis Prospectos Asignados":
         st.header(f"📞 Mis Prospectos Asignados ({usuario})")
-
         col_busq_a, col_vacio_a, col_btn_crear_a = st.columns([1, 1.8, 1.2])
         with col_busq_a:
           busqueda_asesor_p = st.text_input("🔎 Buscar en mis prospectos:")
@@ -2265,9 +2239,7 @@ else:
               + busqueda_asesor_p
               + "%')"
           )
-
         df_prosp_asesor = pd.read_sql_query(query_asesor_prosp, CONN)
-
         if df_prosp_asesor.empty:
           st.info("No tienes prospectos asignados actualmente.")
         else:
@@ -2277,7 +2249,6 @@ else:
 
       elif opcion == "Bolsa de Citas del Día (Asesores)":
         st.header(f"💼 Bolsa de Citas del Día ({usuario})")
-
         col_b_asesor, col_btn_nuevo_asesor = st.columns([3, 1])
         with col_b_asesor:
           pass
@@ -2295,7 +2266,6 @@ else:
                 ORDER BY hora ASC
             """
         df_bolsa = pd.read_sql_query(query_bolsa, CONN)
-
         if df_bolsa.empty:
           st.info("No hay citas en la bolsa para el día de hoy.")
         else:
@@ -2306,7 +2276,6 @@ else:
 
       elif opcion == "Mis Registros de Hoy":
         st.header(f"📝 Mis Registros y Actividad de Hoy ({usuario})")
-
         fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
         query_reg_hoy = f"""
                 SELECT h.fecha_registro as 'Fecha/Hora', c.nombre || ' ' || c.apellido as 'Cliente', h.accion as 'Acción', h.detalle as 'Detalle'
@@ -2316,7 +2285,6 @@ else:
                 ORDER BY h.id DESC
             """
         df_reg_hoy = pd.read_sql_query(query_reg_hoy, CONN)
-
         if df_reg_hoy.empty:
           st.info("No tienes registros en el historial para el día de hoy.")
         else:
@@ -2334,7 +2302,6 @@ else:
             "Fecha Base:", value=datetime.today(), key="f_asesor_rep"
         )
         fecha_rep_str = fecha_asesor_rep.strftime("%Y-%m-%d")
-
         query_rep_asesor = f"""
                 SELECT * FROM citas WHERE agente = '{usuario}' AND fecha = '{fecha_rep_str}'
             """
