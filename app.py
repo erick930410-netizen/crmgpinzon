@@ -1154,7 +1154,8 @@ else:
         "2. Ver Banco de Prospectos",
         "3. Gestión y Asignación de Prospectos",
         "4. Reporte de Citas y Eficiencia",
-        "5. Gestión de Usuarios y Roles",
+        "5. Reporte de Seguimiento Telefonistas",
+        "6. Gestión de Usuarios y Roles",
     ]
   elif rol == "Telefonista":
     opciones = [
@@ -1516,7 +1517,15 @@ else:
 
       accion_llamada = st.selectbox(
           "Selecciona opción de llamada:",
-          ["Cita", "Posible Asistencia", "Recado", "Mensaje de texto"],
+          [
+              "Cita",
+              "Posible Asistencia",
+              "Recado",
+              "Mensaje de texto",
+              "No existe",
+              "No le interesa",
+              "No contesta",
+          ],
       )
 
       with st.form(f"form_llamada_{rfc_actual}"):
@@ -1540,8 +1549,9 @@ else:
           )
         else:
           st.info(
-              f"📌 Campos de fecha y hora ocultos para **{accion_llamada}**."
-              " Se registrará automáticamente con la hora actual."
+              f"📌 Campos de fecha y hora bloqueados/ocultos para **{accion_llamada}**."
+              " Se registrará automáticamente con la fecha y hora actual en el"
+              " historial."
           )
           f_cita_input = datetime.today().date()
           h_cita_input = datetime.now().strftime("%H:%M")
@@ -1917,7 +1927,88 @@ else:
           )
           st.markdown(html_table, unsafe_allow_html=True)
 
-      elif opcion == "5. Gestión de Usuarios y Roles":
+      elif opcion == "5. Reporte de Seguimiento Telefonistas":
+        st.header("⏱️ Reporte de Seguimiento y Actividad de Telefonistas")
+        st.caption(
+            "Monitorea el volumen de gestiones y llamadas realizadas por cada"
+            " telefonista para verificar su productividad."
+        )
+
+        col_rep_t1, col_rep_t2 = st.columns(2)
+        with col_rep_t1:
+          fecha_seguimiento = st.date_input(
+              "Fecha a Consultar:", value=datetime.today()
+          )
+        with col_rep_t2:
+          telefonista_filtro_rep = st.selectbox(
+              "Telefonista:", ["Todas"] + obtener_usuarios_por_rol("Telefonista")
+          )
+
+        f_seg_str = fecha_seguimiento.strftime("%Y-%m-%d")
+
+        query_seguimiento = f"""
+                SELECT usuario as 'Telefonista', accion as 'Acción Realizada', COUNT(*) as 'Total Gestiones'
+                FROM historial_llamadas
+                WHERE date(fecha_registro) = '{f_seg_str}'
+            """
+        if telefonista_filtro_rep != "Todas":
+          query_seguimiento += f" AND usuario = '{telefonista_filtro_rep}'"
+        query_seguimiento += " GROUP BY usuario, accion ORDER BY 'Total Gestiones' DESC"
+
+        df_seg = pd.read_sql_query(query_seguimiento, CONN)
+
+        query_total_acciones = f"""
+                SELECT usuario as 'Telefonista', COUNT(*) as 'Total General'
+                FROM historial_llamadas
+                WHERE date(fecha_registro) = '{f_seg_str}'
+            """
+        if telefonista_filtro_rep != "Todas":
+          query_total_acciones += f" AND usuario = '{telefonista_filtro_rep}'"
+        query_total_acciones += " GROUP BY usuario"
+
+        df_totales_tele = pd.read_sql_query(query_total_acciones, CONN)
+
+        st.markdown("---")
+        if df_totales_tele.empty:
+          st.info(
+              "No hay registros de llamadas o gestiones para la fecha"
+              f" seleccionada ({f_seg_str})."
+          )
+        else:
+          st.subheader(
+              f"📊 Resumen de Productividad por Telefonista ({f_seg_str})"
+          )
+          st.dataframe(df_totales_tele, use_container_width=True, hide_index=True)
+
+          st.markdown("---")
+          st.subheader("📋 Detalle Desglosado por Tipo de Acción")
+          html_table_seg = df_seg.to_html(
+              classes="custom-table", index=False, escape=False
+          )
+          st.markdown(html_table_seg, unsafe_allow_html=True)
+
+          st.markdown("---")
+          st.subheader("🔍 Bitácora Detallada de Movimientos del Día")
+          query_bitacora = f"""
+                    SELECT h.fecha_registro as 'Fecha/Hora', h.usuario as 'Telefonista', c.rfc as 'RFC', c.nombre || ' ' || c.apellido as 'Cliente', h.accion as 'Acción', h.detalle as 'Detalle'
+                    FROM historial_llamadas h
+                    JOIN clientes c ON h.rfc_cliente = c.rfc
+                    WHERE date(h.fecha_registro) = '{f_seg_str}'
+                """
+          if telefonista_filtro_rep != "Todas":
+            query_bitacora += f" AND h.usuario = '{telefonista_filtro_rep}'"
+          query_bitacora += " ORDER BY h.id DESC"
+
+          df_bitacora = pd.read_sql_query(query_bitacora, CONN)
+          if df_bitacora.empty:
+            st.info("No hay bitácora detallada disponible.")
+          else:
+            html_table_bit = df_bitacora.to_html(
+                classes="custom-table", index=False, escape=False
+            )
+            st.markdown(html_table_bit, unsafe_allow_html=True)
+
+      elif opcion == "6. Gestión de Usuarios y Roles":
         st.header("👥 Panel de Administración de Usuarios y Fichas")
         tab_crear, tab_editar = st.tabs(
             ["➕ Crear Nuevo Usuario", "✏️ Editar / Restablecer Usuarios"]
@@ -2158,6 +2249,9 @@ else:
                   "Posible Asistencia",
                   "Recados",
                   "Mensajes de Texto",
+                  "No existe",
+                  "No le interesa",
+                  "No contesta",
                   "Todo el Historial",
               ],
           )
@@ -2178,6 +2272,9 @@ else:
           accion_map = {
               "Recados": "Recado",
               "Mensajes de Texto": "Mensaje de texto",
+              "No existe": "No existe",
+              "No le interesa": "No le interesa",
+              "No contesta": "No contesta",
           }
           if tipo_agenda_sel == "Todo el Historial":
             query_agenda = f"""
