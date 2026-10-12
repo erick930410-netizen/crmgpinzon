@@ -10,13 +10,11 @@ st.set_page_config(
 # --- CONFIGURACIÓN DE CONEXIÓN A SUPABASE (POSTGRESQL) ---
 try:
   db_url = st.secrets["postgres"]["connection_string"]
-  # Si la URL viene como 'postgres://' o 'postgresql://', forzamos el uso explícito de psycopg2
   if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
   elif db_url.startswith("postgresql://") and "+psycopg2" not in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-  # Creamos el motor de SQLAlchemy asegurando compatibilidad con pooler/pgbouncer
   engine = create_engine(db_url, pool_pre_ping=True, pool_recycle=3600)
 except Exception as e:
   st.error(
