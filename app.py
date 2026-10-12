@@ -1,13 +1,26 @@
-from datetime import datetime
-import sqlite3
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import streamlit as st
+from sqlalchemy import create_engine
 
 st.set_page_config(
     page_title="GRUPO PINZON - CRM", page_icon="🛡️", layout="wide"
 )
 
-# --- ESTILOS CSS CON GRUPO PINZÓN FUERTEMENTE EN VERDE METLIFE ---
+# --- CONFIGURACIÓN DE CONEXIÓN A SUPABASE (POSTGRESQL) ---
+try:
+  db_url = st.secrets["postgres"]["connection_string"]
+  # Creamos el motor de SQLAlchemy asegurando compatibilidad con pooler/pgbouncer
+  engine = create_engine(db_url, pool_pre_ping=True, pool_recycle=3600)
+except Exception as e:
+  st.error(
+      "⚠️ Error crítico de conexión a la base de datos en la nube. Verifica tus"
+      f" secretos en Streamlit Cloud: {e}"
+  )
+  st.stop()
+
+
+# --- ESTILOS CSS OPTIMIZADOS (SIN ANTI-COPIA GLOBAL) ---
 st.markdown(
     """
 <style>
@@ -82,19 +95,21 @@ st.markdown(
 )
 
 
+def obtener_ahora_mexico():
+  return datetime.now(timezone(timedelta(hours=-6)))
+
+
 def calcular_edad_desde_rfc(rfc):
   if not rfc or len(rfc.strip()) < 10 or str(rfc).startswith("TEMP_"):
     return "S/D"
   try:
     limpio = rfc.strip().upper()
-    yy = int(limpio[4:6])
-    mm = int(limpio[6:8])
-    dd = int(limpio[8:10])
-    anio_actual = datetime.today().year
+    yy, mm, dd = int(limpio[4:6]), int(limpio[6:8]), int(limpio[8:10])
+    anio_actual = obtener_ahora_mexico().year
     siglo = 2000 if yy <= (anio_actual % 100) else 1900
     anio = siglo + yy
     f_nac = datetime(anio, mm, dd)
-    hoy = datetime.today()
+    hoy = obtener_ahora_mexico()
     edad = (
         hoy.year
         - f_nac.year
@@ -111,243 +126,183 @@ def limpiar_fecha_str(val):
   s = str(val).strip()
   if not s or s.lower() == "nan" or s == "0":
     return ""
-  if " " in s:
-    s = s.split(" ")[0]
-  return s
+  return s.split(" ")[0] if " " in s else s
 
 
 def parsear_a_date(val):
   s = limpiar_fecha_str(val)
   if not s:
-    return datetime.today().date()
+    return obtener_ahora_mexico().date()
   for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
     try:
       return datetime.strptime(s, fmt).date()
     except ValueError:
       continue
-  return datetime.today().date()
+  return obtener_ahora_mexico().date()
 
 
-CONN = sqlite3.connect("sistema_citas.db", check_same_thread=False)
-CURSOR = CONN.cursor()
+# --- INICIALIZACIÓN DE TABLAS EN POSTGRESQL ---
+with engine.begin() as conn_sql:
+  conn_sql.exec_driver_sql("""
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY,
+        usuario TEXT UNIQUE, password TEXT, rol TEXT,
+        nombre_completo TEXT, apellido TEXT, telefono TEXT, direccion TEXT
+    )
+    """)
 
-CURSOR.execute("""
-CREATE TABLE IF NOT EXISTS usuarios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    usuario TEXT UNIQUE,
-    password TEXT,
-    rol TEXT,
-    nombre_completo TEXT,
-    apellido TEXT,
-    telefono TEXT,
-    direccion TEXT
-)
-""")
+  conn_sql.exec_driver_sql("""
+    CREATE TABLE IF NOT EXISTS clientes (
+        rfc TEXT PRIMARY KEY, nombre TEXT, apellido TEXT,
+        tel1 TEXT, tel2 TEXT, tel3 TEXT, telefono TEXT,
+        sector TEXT, poliza TEXT, dividendos TEXT,
+        ult_fecha_asignacion TEXT, edad TEXT, fecha_ult_mov TEXT,
+        observaciones_tel TEXT, observaciones_asesor TEXT,
+        telefonista_asignada TEXT DEFAULT 'Sin Asignar',
+        estatus TEXT DEFAULT 'Disponible',
+        estado_tel1 TEXT DEFAULT 'Sin marcar',
+        estado_tel2 TEXT DEFAULT 'Sin marcar',
+        estado_tel3 TEXT DEFAULT 'Sin marcar',
+        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
 
-CURSOR.execute("""
-CREATE TABLE IF NOT EXISTS clientes (
-    rfc TEXT PRIMARY KEY,
-    nombre TEXT,
-    apellido TEXT,
-    tel1 TEXT,
-    tel2 TEXT,
-    tel3 TEXT,
-    telefono TEXT,
-    sector TEXT,
-    poliza TEXT,
-    dividendos TEXT,
-    ult_fecha_asignacion TEXT,
-    edad TEXT,
-    fecha_ult_mov TEXT,
-    observaciones_tel TEXT,
-    observaciones_asesor TEXT,
-    telefonista_asignada TEXT DEFAULT 'Sin Asignar',
-    estatus TEXT DEFAULT 'Disponible',
-    estado_tel1 TEXT DEFAULT 'Sin marcar',
-    estado_tel2 TEXT DEFAULT 'Sin marcar',
-    estado_tel3 TEXT DEFAULT 'Sin marcar',
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
+  conn_sql.exec_driver_sql("""
+    CREATE TABLE IF NOT EXISTS historial_llamadas (
+        id SERIAL PRIMARY KEY,
+        rfc_cliente TEXT, usuario TEXT, accion TEXT, detalle TEXT, fecha_registro TEXT
+    )
+    """)
 
-CURSOR.execute("""
-CREATE TABLE IF NOT EXISTS historial_llamadas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rfc_cliente TEXT,
-    usuario TEXT,
-    accion TEXT,
-    detalle TEXT,
-    fecha_registro TEXT
-)
-""")
+  conn_sql.exec_driver_sql("""
+    CREATE TABLE IF NOT EXISTS citas (
+        id SERIAL PRIMARY KEY,
+        rfc_cliente TEXT, cliente TEXT NOT NULL, telefono TEXT,
+        agente TEXT, asesor TEXT DEFAULT 'Sin Asignar',
+        fecha TEXT NOT NULL, hora TEXT NOT NULL, estado TEXT NOT NULL, notas TEXT
+    )
+    """)
 
-
-def asegurar_columnas():
-  columnas_requeridas_clientes = {
-      "nombre": "TEXT",
-      "apellido": "TEXT",
-      "tel1": "TEXT",
-      "tel2": "TEXT",
-      "tel3": "TEXT",
-      "telefono": "TEXT",
-      "sector": "TEXT",
-      "poliza": "TEXT",
-      "dividendos": "TEXT",
-      "ult_fecha_asignacion": "TEXT",
-      "edad": "TEXT",
-      "fecha_ult_mov": "TEXT",
-      "observaciones_tel": "TEXT",
-      "observaciones_asesor": "TEXT",
-      "telefonista_asignada": "TEXT DEFAULT 'Sin Asignar'",
-      "estatus": "TEXT DEFAULT 'Disponible'",
-      "estado_tel1": "TEXT DEFAULT 'Sin marcar'",
-      "estado_tel2": "TEXT DEFAULT 'Sin marcar'",
-      "estado_tel3": "TEXT DEFAULT 'Sin marcar'",
-      "fecha_creacion": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-  }
-  CURSOR.execute("PRAGMA table_info(clientes)")
-  existentes_clientes = [col[1] for col in CURSOR.fetchall()]
-  for col, tipo in columnas_requeridas_clientes.items():
-    if col not in existentes_clientes:
-      try:
-        CURSOR.execute(f"ALTER TABLE clientes ADD COLUMN {col} {tipo}")
-      except:
-        pass
-
-  columnas_requeridas_usuarios = {
-      "nombre_completo": "TEXT",
-      "apellido": "TEXT",
-      "telefono": "TEXT",
-      "direccion": "TEXT",
-  }
-  CURSOR.execute("PRAGMA table_info(usuarios)")
-  existentes_usuarios = [col[1] for col in CURSOR.fetchall()]
-  for col, tipo in columnas_requeridas_usuarios.items():
-    if col not in existentes_usuarios:
-      try:
-        CURSOR.execute(f"ALTER TABLE usuarios ADD COLUMN {col} {tipo}")
-      except:
-        pass
-  CONN.commit()
-
-
-asegurar_columnas()
-
-CURSOR.execute("""
-CREATE TABLE IF NOT EXISTS citas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rfc_cliente TEXT,
-    cliente TEXT NOT NULL,
-    telefono TEXT,
-    agente TEXT,
-    asesor TEXT DEFAULT 'Sin Asignar',
-    fecha TEXT NOT NULL,
-    hora TEXT NOT NULL,
-    estado TEXT NOT NULL,
-    notas TEXT
-)
-""")
-
-CURSOR.execute("""
-    UPDATE citas 
-    SET estado = 'No Asistió (Automático)' 
-    WHERE estado = 'Pendiente' AND date(fecha) < date('now', 'localtime')
-""")
-CONN.commit()
-
-CURSOR.execute("SELECT COUNT(*) FROM usuarios")
-if CURSOR.fetchone()[0] == 0:
-  CURSOR.executemany(
+# Actualización automática de citas pendientes pasadas
+hoy_str_mex = obtener_ahora_mexico().strftime("%Y-%m-%d")
+with engine.begin() as conn_sql:
+  conn_sql.exec_driver_sql(
       """
-        INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-      [
-          (
-              "admin",
-              "1234",
-              "Administrador",
-              "Administrador",
-              "Principal",
-              "5550000000",
-              "Oficina Central",
-          ),
-          (
-              "tele1",
-              "1234",
-              "Telefonista",
-              "Telefonista",
-              "Uno",
-              "5551111111",
-              "Call Center",
-          ),
-          (
-              "tele2",
-              "1234",
-              "Telefonista",
-              "Telefonista",
-              "Dos",
-              "5552222222",
-              "Call Center",
-          ),
-          (
-              "asesor1",
-              "1234",
-              "Asesor",
-              "Asesor",
-              "Uno",
-              "5553333333",
-              "Campo",
-          ),
-          (
-              "asesor2",
-              "1234",
-              "Asesor",
-              "Asesor",
-              "Dos",
-              "5554444444",
-              "Campo",
-          ),
-      ],
+        UPDATE citas SET estado = 'No Asistió (Automático)' 
+        WHERE estado = 'Pendiente' AND date(fecha) < %s
+    """,
+      (hoy_str_mex,),
   )
-  CONN.commit()
+
+# Crear usuario administrador por defecto si no existe
+with engine.connect() as conn_sql:
+  res_u = conn_sql.exec_driver_sql("SELECT COUNT(*) FROM usuarios").fetchone()[0]
+
+if res_u == 0:
+  with engine.begin() as conn_sql:
+    conn_sql.exec_driver_sql(
+        """
+            INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (usuario) DO NOTHING
+            """,
+        (
+            "admin",
+            "1234",
+            "Administrador",
+            "Administrador",
+            "Principal",
+            "5550000000",
+            "Oficina Central",
+        ),
+    )
+    conn_sql.exec_driver_sql(
+        """
+            INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (usuario) DO NOTHING
+            """,
+        (
+            "tele1",
+            "1234",
+            "Telefonista",
+            "Telefonista",
+            "Uno",
+            "5551111111",
+            "Call Center",
+        ),
+    )
+    conn_sql.exec_driver_sql(
+        """
+            INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (usuario) DO NOTHING
+            """,
+        (
+            "tele2",
+            "1234",
+            "Telefonista",
+            "Telefonista",
+            "Dos",
+            "5552222222",
+            "Call Center",
+        ),
+    )
+    conn_sql.exec_driver_sql(
+        """
+            INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (usuario) DO NOTHING
+            """,
+        ("asesor1", "1234", "Asesor", "Asesor", "Uno", "5553333333", "Campo"),
+    )
+    conn_sql.exec_driver_sql(
+        """
+            INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (usuario) DO NOTHING
+            """,
+        ("asesor2", "1234", "Asesor", "Asesor", "Dos", "5554444444", "Campo"),
+    )
 
 
 def autenticar(usuario, password):
-  CURSOR.execute(
-      "SELECT usuario, rol FROM usuarios WHERE usuario = ? AND password = ?",
-      (usuario, password),
-  )
-  return CURSOR.fetchone()
+  with engine.connect() as conn_sql:
+    res = conn_sql.exec_driver_sql(
+        "SELECT usuario, rol FROM usuarios WHERE usuario = %s AND password = %s",
+        (usuario, password),
+    ).fetchone()
+  return res
 
 
 def guardar_cita(
     rfc_cliente, cliente, telefono, agente, fecha, hora, estado, notas
 ):
-  CURSOR.execute(
-      """
+  with engine.begin() as conn_sql:
+    conn_sql.exec_driver_sql(
+        """
         INSERT INTO citas (rfc_cliente, cliente, telefono, agente, asesor, fecha, hora, estado, notas)
-        VALUES (?, ?, ?, ?, 'Sin Asignar', ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, 'Sin Asignar', %s, %s, %s, %s)
         """,
-      (
-          rfc_cliente,
-          cliente,
-          telefono,
-          agente,
-          str(fecha),
-          str(hora),
-          estado,
-          notas,
-      ),
-  )
-  CONN.commit()
+        (
+            rfc_cliente,
+            cliente,
+            telefono,
+            agente,
+            str(fecha),
+            str(hora),
+            estado,
+            notas,
+        ),
+    )
 
 
 def obtener_usuarios_por_rol(rol):
-  CURSOR.execute(
-      "SELECT usuario FROM usuarios WHERE rol = ? ORDER BY usuario", (rol,)
-  )
-  return [row[0] for row in CURSOR.fetchall()]
+  with engine.connect() as conn_sql:
+    res = conn_sql.exec_driver_sql(
+        "SELECT usuario FROM usuarios WHERE rol = %s ORDER BY usuario", (rol,)
+    ).fetchall()
+  return [row[0] for row in res]
 
 
 def limpiar_val(val):
@@ -364,38 +319,31 @@ def cargar_base_general(df_cargado):
   df_cargado.columns = [str(col).strip().upper() for col in df_cargado.columns]
   contador_sin_rfc = 1
   for _, fila in df_cargado.iterrows():
-    nom = limpiar_val(fila.get("NOMBRE", ""))
-    ape = limpiar_val(fila.get("APELLIDOS", ""))
-    if not nom:
-      nom = "Sin Nombre"
-    if not ape:
-      ape = "Sin Apellido"
-
-    t1 = limpiar_val(fila.get("TEL1", ""))
-    t2 = limpiar_val(fila.get("TEL2", ""))
-    t3 = limpiar_val(fila.get("TEL3", ""))
-    tels_disponibles = [t for t in [t1, t2, t3] if t and t != "0"]
-    telefono_principal = (
-        " / ".join(tels_disponibles) if tels_disponibles else "Sin Teléfono"
+    nom = limpiar_val(fila.get("NOMBRE", "")) or "Sin Nombre"
+    ape = limpiar_val(fila.get("APELLIDOS", "")) or "Sin Apellido"
+    t1, t2, t3 = (
+        limpiar_val(fila.get("TEL1", "")),
+        limpiar_val(fila.get("TEL2", "")),
+        limpiar_val(fila.get("TEL3", "")),
     )
+    tels = [t for t in [t1, t2, t3] if t and t != "0"]
+    telefono_principal = " / ".join(tels) if tels else "Sin Teléfono"
 
     rfc = limpiar_val(fila.get("RFC", ""))
-    if not rfc or rfc.upper() == "NONE" or rfc == "":
-      rfc = f"TEMP_{datetime.today().strftime('%y%m%d')}_{contador_sin_rfc}"
+    if not rfc or rfc.upper() == "NONE":
+      rfc = f"TEMP_{obtener_ahora_mexico().strftime('%y%m%d')}_{contador_sin_rfc}"
       contador_sin_rfc += 1
 
     sector = limpiar_val(fila.get("DEPENDENCIA", ""))
     poliza = limpiar_val(fila.get("POLIZA", ""))
     dividendos = limpiar_fecha_str(fila.get("DIVIDENDOS", ""))
     ult_fecha_asig = limpiar_fecha_str(fila.get("ULT FECHA ASIGNACION", ""))
-
     edad_excel = limpiar_val(fila.get("EDAD", ""))
     edad_calc = (
         edad_excel
         if edad_excel and edad_excel != "S/D"
         else calcular_edad_desde_rfc(rfc)
     )
-
     fecha_ult_mov = limpiar_fecha_str(fila.get("FECHA ULT MOV", ""))
     obs_tel = limpiar_val(fila.get("OBSERVACIONES TEL", ""))
     obs_asesor = limpiar_val(fila.get("OBSERVACIONES ASESOR", ""))
@@ -418,22 +366,31 @@ def cargar_base_general(df_cargado):
         obs_asesor,
     ))
 
-  for reg in registros:
-    try:
-      CURSOR.execute(
-          """
-                INSERT OR REPLACE INTO clientes (
+  with engine.begin() as conn_sql:
+    for reg in registros:
+      try:
+        conn_sql.exec_driver_sql(
+            """
+                INSERT INTO clientes (
                     rfc, nombre, apellido, tel1, tel2, tel3, telefono, sector, 
                     poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
                     observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sin Asignar', 'Disponible', 'Sin marcar', 'Sin marcar', 'Sin marcar')
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Sin Asignar', 'Disponible', 'Sin marcar', 'Sin marcar', 'Sin marcar')
+                ON CONFLICT (rfc) DO UPDATE SET
+                    nombre = EXCLUDED.nombre,
+                    apellido = EXCLUDED.apellido,
+                    tel1 = EXCLUDED.tel1,
+                    tel2 = EXCLUDED.tel2,
+                    tel3 = EXCLUDED.tel3,
+                    telefono = EXCLUDED.telefono,
+                    sector = EXCLUDED.sector,
+                    poliza = EXCLUDED.poliza
             """,
-          reg,
-      )
-    except Exception as e:
-      pass
-  CONN.commit()
+            reg,
+        )
+      except Exception:
+        pass
   return len(registros)
 
 
@@ -445,141 +402,135 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
       rfc = st.text_input("RFC (Identificador Principal) *")
       nombre = st.text_input("Nombre(s) *")
       apellido = st.text_input("Apellidos *")
-      tel1 = st.text_input("TEL 1")
-      tel2 = st.text_input("TEL 2")
-      tel3 = st.text_input("TEL 3")
-
+      tel1, tel2, tel3 = (
+          st.text_input("TEL 1"),
+          st.text_input("TEL 2"),
+          st.text_input("TEL 3"),
+      )
     with col2:
       sector = st.text_input("Dependencia")
       poliza = st.text_input("Póliza")
-      dividendos_dt = st.date_input("Dividendos", value=datetime.today())
-      ult_fecha_asig_dt = st.date_input(
-          "Ult Fecha Asignación", value=datetime.today()
+      dividendos_dt = st.date_input(
+          "Dividendos", value=obtener_ahora_mexico().date()
       )
-      fecha_ult_mov_dt = st.date_input("Fecha Ult Mov", value=datetime.today())
+      ult_fecha_asig_dt = st.date_input(
+          "Ult Fecha Asignación", value=obtener_ahora_mexico().date()
+      )
+      fecha_ult_mov_dt = st.date_input(
+          "Fecha Ult Mov", value=obtener_ahora_mexico().date()
+      )
 
     if rol_actual == "Administrador":
-      lista_asignables = (
+      telefonista_asignada = st.selectbox(
+          "Asignar a:",
           ["Sin Asignar"]
           + obtener_usuarios_por_rol("Telefonista")
-          + obtener_usuarios_por_rol("Asesor")
+          + obtener_usuarios_por_rol("Asesor"),
       )
-      telefonista_asignada = st.selectbox("Asignar a:", lista_asignables)
-    elif rol_actual == "Telefonista":
+    elif rol_actual in ["Telefonista", "Asesor"]:
       telefonista_asignada = usuario_actual
       st.info(f"📌 Asignado a: **{usuario_actual}**")
-    elif rol_actual == "Asesor":
-      telefonista_asignada = usuario_actual
-      st.info(f"📌 Registrado por Asesor: **{usuario_actual}**")
     else:
       telefonista_asignada = "admin"
 
     estatus = st.selectbox(
         "Estatus Inicial", ["Disponible", "Asignado", "En Seguimiento"]
     )
-    obs_tel = st.text_area("Observaciones Tel")
-    obs_asesor = st.text_area("Observaciones Asesor")
-
-    submitted = st.form_submit_button(
-        "💾 Guardar Prospecto", use_container_width=True
+    obs_tel, obs_asesor = (
+        st.text_area("Observaciones Tel"),
+        st.text_area("Observaciones Asesor"),
     )
 
-    if submitted:
+    if st.form_submit_button("💾 Guardar Prospecto", use_container_width=True):
       if not rfc.strip() or not nombre.strip() or not apellido.strip():
         st.error("⚠️ Los campos RFC, Nombre(s) y Apellidos son obligatorios.")
       else:
         tels_disp = [t for t in [tel1, tel2, tel3] if t]
         telefono_final = " / ".join(tels_disp) if tels_disp else "Sin Teléfono"
         edad_calc = calcular_edad_desde_rfc(rfc)
-        fecha_hoy_str = datetime.today().strftime("%Y/%m/%d")
-        obs_tel_final = (
-            f"({fecha_hoy_str} - {usuario_actual}) {obs_tel}" if obs_tel else ""
+        f_hoy = obtener_ahora_mexico().strftime("%Y/%m/%d")
+        obs_tel_f = (
+            f"({f_hoy} - {usuario_actual}) {obs_tel}" if obs_tel else ""
         )
-        obs_asesor_final = (
-            f"({fecha_hoy_str} - {usuario_actual}) {obs_asesor}"
-            if obs_asesor
-            else ""
+        obs_asesor_f = (
+            f"({f_hoy} - {usuario_actual}) {obs_asesor}" if obs_asesor else ""
         )
 
-        CURSOR.execute(
-            """
-                    INSERT OR REPLACE INTO clientes (
-                        rfc, nombre, apellido, tel1, tel2, tel3, telefono, sector, 
-                        poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
-                        observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sin marcar', 'Sin marcar', 'Sin marcar')
-                """,
-            (
-                rfc.strip().upper(),
-                nombre,
-                apellido,
-                tel1,
-                tel2,
-                tel3,
-                telefono_final,
-                sector,
-                poliza,
-                dividendos_dt.strftime("%Y-%m-%d"),
-                ult_fecha_asig_dt.strftime("%Y-%m-%d"),
-                edad_calc,
-                fecha_ult_mov_dt.strftime("%Y-%m-%d"),
-                obs_tel_final,
-                obs_asesor_final,
-                telefonista_asignada,
-                estatus,
-            ),
-        )
-        CONN.commit()
+        with engine.begin() as conn_sql:
+          conn_sql.exec_driver_sql(
+              """
+                INSERT INTO clientes (
+                    rfc, nombre, apellido, tel1, tel2, tel3, telefono, sector, 
+                    poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
+                    observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Sin marcar', 'Sin marcar', 'Sin marcar')
+                ON CONFLICT (rfc) DO UPDATE SET
+                    nombre = EXCLUDED.nombre,
+                    apellido = EXCLUDED.apellido,
+                    tel1 = EXCLUDED.tel1,
+                    tel2 = EXCLUDED.tel2,
+                    tel3 = EXCLUDED.tel3
+            """,
+              (
+                  rfc.strip().upper(),
+                  nombre,
+                  apellido,
+                  tel1,
+                  tel2,
+                  tel3,
+                  telefono_final,
+                  sector,
+                  poliza,
+                  dividendos_dt.strftime("%Y-%m-%d"),
+                  ult_fecha_asig_dt.strftime("%Y-%m-%d"),
+                  edad_calc,
+                  fecha_ult_mov_dt.strftime("%Y-%m-%d"),
+                  obs_tel_f,
+                  obs_asesor_f,
+                  telefonista_asignada,
+                  estatus,
+              ),
+          )
         st.success(
             f"✅ ¡Prospecto '{nombre} {apellido}' registrado con éxito!"
         )
         st.rerun()
 
 
-def renderizar_bloque_con_tabla(df_entrada, key_suffix):
+def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   df = df_entrada.copy()
+  if ocultar_tels:
+    for col_tel in ["tel1", "tel2", "tel3", "telefono"]:
+      if col_tel in df.columns:
+        df[col_tel] = "🔒 ***-ocultos***"
 
   cant_por_pagina = 100
   total_filas = len(df)
-  total_paginas = (
-      max(1, (total_filas - 1) // cant_por_pagina + 1)
-      if total_filas > 0
-      else 1
-  )
 
   with st.popover("⚙️ Opciones de Tabla y Multi-Filtros Avanzados"):
-    seleccionados_previos_global = st.session_state.get(
-        f"sel_rfcs_{key_suffix}", []
-    )
-
+    sel_prev = st.session_state.get(f"sel_rfcs_{key_suffix}", [])
     col_pop1, col_pop2 = st.columns([1.6, 1.4])
     with col_pop1:
       if st.button(
           "✅ Seleccionar 100 de esta página",
-          key=f"btn_sel_pagina_{key_suffix}",
+          key=f"btn_sel_pag_{key_suffix}",
           use_container_width=True,
       ):
-        pag_actual = st.session_state.get(f"pag_num_{key_suffix}", 1)
-        inicio_p = (pag_actual - 1) * cant_por_pagina
-        fin_p = min(inicio_p + cant_por_pagina, total_filas)
-        rfcs_pagina = df.iloc[inicio_p:fin_p]["rfc"].tolist()
-        nuevos_totales = list(set(seleccionados_previos_global + rfcs_pagina))
-        st.session_state[f"sel_rfcs_{key_suffix}"] = nuevos_totales
+        p_act = st.session_state.get(f"pag_num_{key_suffix}", 1)
+        ini_p = (p_act - 1) * cant_por_pagina
+        fin_p = min(ini_p + cant_por_pagina, total_filas)
+        rfcs_pag = df.iloc[ini_p:fin_p]["rfc"].tolist()
+        st.session_state[f"sel_rfcs_{key_suffix}"] = list(
+            set(sel_prev + rfcs_pag)
+        )
         st.rerun()
-
     with col_pop2:
-      st.markdown(
-          f"📌 **Seleccionados:** `{len(seleccionados_previos_global)}`"
-      )
+      st.markdown(f"📌 **Seleccionados:** `{len(sel_prev)}`")
 
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-      if st.button(
-          "❌ Desmarcar Todos", key=f"btn_desel_all_global_{key_suffix}"
-      ):
-        st.session_state[f"sel_rfcs_{key_suffix}"] = []
-        st.rerun()
+    if st.button("❌ Desmarcar Todos", key=f"btn_desel_all_{key_suffix}"):
+      st.session_state[f"sel_rfcs_{key_suffix}"] = []
+      st.rerun()
 
     st.markdown("---")
     st.markdown("##### 🗂️ Panel de Multi-Filtros Acumulativos")
@@ -589,19 +540,23 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
         key=f"btn_reset_filtros_{key_suffix}",
         use_container_width=True,
     ):
-      st.session_state[f"filtro_tel_est_{key_suffix}"] = "Todos"
-      st.session_state[f"filtro_mercado_{key_suffix}"] = "Todos"
-      st.session_state[f"filtro_est_gral_{key_suffix}"] = "Todos"
-      st.session_state[f"filtro_usuario_{key_suffix}"] = "Todos"
-      st.session_state[f"chk_edad_{key_suffix}"] = False
-      st.session_state[f"chk_div_{key_suffix}"] = False
-      st.session_state[f"chk_asig_{key_suffix}"] = False
-      st.session_state[f"chk_mov_{key_suffix}"] = False
+      for k in [
+          "tel_est",
+          "mercado",
+          "est_gral",
+          "usuario",
+          "chk_edad",
+          "chk_div",
+          "chk_asig",
+          "chk_mov",
+      ]:
+        if f"filtro_{k}_{key_suffix}" in st.session_state:
+          st.session_state[f"filtro_{k}_{key_suffix}"] = (
+              "Todos" if "chk" not in k else False
+          )
       st.rerun()
 
-    st.markdown("---")
-
-    filtro_estado_tel = st.selectbox(
+    st.selectbox(
         "📞 Estatus de Teléfonos:",
         [
             "Todos",
@@ -612,451 +567,94 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
         ],
         key=f"filtro_tel_est_{key_suffix}",
     )
-
     if "sector" in df.columns:
-      mercados_disp = ["Todos"] + sorted(
-          [str(x) for x in df["sector"].dropna().unique() if str(x).strip()]
-      )
-      filtro_mercado = st.selectbox(
+      st.selectbox(
           "🏢 Mercado / Dependencia:",
-          mercados_disp,
+          ["Todos"]
+          + sorted(
+              [str(x) for x in df["sector"].dropna().unique() if str(x).strip()]
+          ),
           key=f"filtro_mercado_{key_suffix}",
       )
-    else:
-      filtro_mercado = "Todos"
-
     if "estatus" in df.columns:
-      estatus_disp = ["Todos"] + sorted(
-          [str(x) for x in df["estatus"].dropna().unique() if str(x).strip()]
-      )
-      filtro_estatus_gral = st.selectbox(
+      st.selectbox(
           "📌 Estatus del Prospecto:",
-          estatus_disp,
+          ["Todos"]
+          + sorted(
+              [
+                  str(x)
+                  for x in df["estatus"].dropna().unique()
+                  if str(x).strip()
+              ]
+          ),
           key=f"filtro_est_gral_{key_suffix}",
       )
-    else:
-      filtro_estatus_gral = "Todos"
-
     if "telefonista_asignada" in df.columns:
-      usuarios_disp = ["Todos"] + sorted(
-          [
-              str(x)
-              for x in df["telefonista_asignada"]
-              .dropna()
-              .unique()
-              if str(x).strip()
-          ]
-      )
-      filtro_usuario = st.selectbox(
-          "👤 Usuario Asignado (Telefonista / Asesor):",
-          usuarios_disp,
+      st.selectbox(
+          "👤 Usuario Asignado:",
+          ["Todos"]
+          + sorted(
+              [
+                  str(x)
+                  for x in df["telefonista_asignada"].dropna().unique()
+                  if str(x).strip()
+              ]
+          ),
           key=f"filtro_usuario_{key_suffix}",
       )
-    else:
-      filtro_usuario = "Todos"
-
-    st.markdown("---")
-    usar_filtro_edad = st.checkbox(
-        "👥 Filtrar por Rango de Edad", key=f"chk_edad_{key_suffix}"
-    )
-    if usar_filtro_edad:
-      col_e1, col_e2 = st.columns(2)
-      with col_e1:
-        edad_min = st.number_input(
-            "Edad Mínima:",
-            min_value=18,
-            max_value=120,
-            value=18,
-            key=f"e_min_{key_suffix}",
-        )
-      with col_e2:
-        edad_max = st.number_input(
-            "Edad Máxima:",
-            min_value=18,
-            max_value=120,
-            value=80,
-            key=f"e_max_{key_suffix}",
-        )
-
-    st.markdown("---")
-    usar_filtro_div = st.checkbox(
-        "📅 Filtrar por Fecha de Dividendos", key=f"chk_div_{key_suffix}"
-    )
-    tipo_modo_div = "Rango"
-    f_div_ini, f_div_fin = datetime.today(), datetime.today()
-    mes_div, anio_div = 1, 2026
-
-    if usar_filtro_div:
-      tipo_modo_div = st.radio(
-          "Criterio de Dividendos:",
-          ["Rango (Desde - Hasta)", "Por Mes Específico", "Por Año Completo"],
-          key=f"modo_div_{key_suffix}",
-      )
-      if tipo_modo_div == "Rango (Desde - Hasta)":
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-          f_div_ini = st.date_input(
-              "Dividendos Desde:",
-              value=datetime.today().replace(year=2024),
-              key=f"div_ini_{key_suffix}",
-          )
-        with col_d2:
-          f_div_fin = st.date_input(
-              "Dividendos Hasta:",
-              value=datetime.today(),
-              key=f"div_fin_{key_suffix}",
-          )
-      elif tipo_modo_div == "Por Mes Específico":
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-          mes_div = st.selectbox(
-              "Selecciona el Mes:",
-              list(range(1, 13)),
-              format_func=lambda x: [
-                  "Enero",
-                  "Febrero",
-                  "Marzo",
-                  "Abril",
-                  "Mayo",
-                  "Junio",
-                  "Julio",
-                  "Agosto",
-                  "Septiembre",
-                  "Octubre",
-                  "Noviembre",
-                  "Diciembre",
-              ][x - 1],
-              key=f"mes_div_{key_suffix}",
-          )
-        with col_m2:
-          anio_div = st.number_input(
-              "Año:",
-              min_value=2000,
-              max_value=2050,
-              value=datetime.today().year,
-              key=f"anio_div_{key_suffix}",
-          )
-      else:
-        anio_div = st.number_input(
-            "Selecciona el Año Completo:",
-            min_value=2000,
-            max_value=2050,
-            value=datetime.today().year,
-            key=f"anio_comp_div_{key_suffix}",
-        )
-
-    st.markdown("---")
-    usar_filtro_asig = st.checkbox(
-        "📋 Filtrar por Fecha de Asignación", key=f"chk_asig_{key_suffix}"
-    )
-    tipo_modo_asig = "Rango"
-    f_asig_ini, f_asig_fin = datetime.today(), datetime.today()
-    mes_asig, anio_asig = 1, 2026
-
-    if usar_filtro_asig:
-      tipo_modo_asig = st.radio(
-          "Criterio de Asignación:",
-          ["Rango (Desde - Hasta)", "Por Mes Específico", "Por Año Completo"],
-          key=f"modo_asig_{key_suffix}",
-      )
-      if tipo_modo_asig == "Rango (Desde - Hasta)":
-        col_as1, col_as2 = st.columns(2)
-        with col_as1:
-          f_asig_ini = st.date_input(
-              "Asignación Desde:",
-              value=datetime.today().replace(year=2024),
-              key=f"asig_ini_{key_suffix}",
-          )
-        with col_as2:
-          f_asig_fin = st.date_input(
-              "Asignación Hasta:",
-              value=datetime.today(),
-              key=f"asig_fin_{key_suffix}",
-          )
-      elif tipo_modo_asig == "Por Mes Específico":
-        col_am1, col_am2 = st.columns(2)
-        with col_am1:
-          mes_asig = st.selectbox(
-              "Selecciona el Mes:",
-              list(range(1, 13)),
-              format_func=lambda x: [
-                  "Enero",
-                  "Febrero",
-                  "Marzo",
-                  "Abril",
-                  "Mayo",
-                  "Junio",
-                  "Julio",
-                  "Agosto",
-                  "Septiembre",
-                  "Octubre",
-                  "Noviembre",
-                  "Diciembre",
-              ][x - 1],
-              key=f"mes_asig_{key_suffix}",
-          )
-        with col_am2:
-          anio_asig = st.number_input(
-              "Año:",
-              min_value=2000,
-              max_value=2050,
-              value=datetime.today().year,
-              key=f"anio_asig_{key_suffix}",
-          )
-      else:
-        anio_asig = st.number_input(
-            "Selecciona el Año Completo:",
-            min_value=2000,
-            max_value=2050,
-            value=datetime.today().year,
-            key=f"anio_comp_asig_{key_suffix}",
-        )
-
-    st.markdown("---")
-    usar_filtro_mov = st.checkbox(
-        "🕒 Filtrar por Fecha de Último Movimiento", key=f"chk_mov_{key_suffix}"
-    )
-    tipo_modo_mov = "Rango"
-    f_mov_ini, f_mov_fin = datetime.today(), datetime.today()
-    mes_mov, anio_mov = 1, 2026
-
-    if usar_filtro_mov:
-      tipo_modo_mov = st.radio(
-          "Criterio de Último Movimiento:",
-          ["Rango (Desde - Hasta)", "Por Mes Específico", "Por Año Completo"],
-          key=f"modo_mov_{key_suffix}",
-      )
-      if tipo_modo_mov == "Rango (Desde - Hasta)":
-        col_mv1, col_mv2 = st.columns(2)
-        with col_mv1:
-          f_mov_ini = st.date_input(
-              "Movimiento Desde:",
-              value=datetime.today().replace(year=2024),
-              key=f"mov_ini_{key_suffix}",
-          )
-        with col_mv2:
-          f_mov_fin = st.date_input(
-              "Movimiento Hasta:",
-              value=datetime.today(),
-              key=f"mov_fin_{key_suffix}",
-          )
-      elif tipo_modo_mov == "Por Mes Específico":
-        col_mm1, col_mm2 = st.columns(2)
-        with col_mm1:
-          mes_mov = st.selectbox(
-              "Selecciona el Mes:",
-              list(range(1, 13)),
-              format_func=lambda x: [
-                  "Enero",
-                  "Febrero",
-                  "Marzo",
-                  "Abril",
-                  "Mayo",
-                  "Junio",
-                  "Julio",
-                  "Agosto",
-                  "Septiembre",
-                  "Octubre",
-                  "Noviembre",
-                  "Diciembre",
-              ][x - 1],
-              key=f"mes_mov_{key_suffix}",
-          )
-        with col_mm2:
-          anio_mov = st.number_input(
-              "Año:",
-              min_value=2000,
-              max_value=2050,
-              value=datetime.today().year,
-              key=f"anio_mov_{key_suffix}",
-          )
-      else:
-        anio_mov = st.number_input(
-            "Selecciona el Año Completo:",
-            min_value=2000,
-            max_value=2050,
-            value=datetime.today().year,
-            key=f"anio_comp_mov_{key_suffix}",
-        )
 
   if (
       st.session_state.get(f"filtro_tel_est_{key_suffix}", "Todos") != "Todos"
       and "estado_tel1" in df.columns
   ):
-    val_tel_est = st.session_state[f"filtro_tel_est_{key_suffix}"]
+    v = st.session_state[f"filtro_tel_est_{key_suffix}"]
     df = df[
-        (df["estado_tel1"] == val_tel_est)
-        | (df["estado_tel2"] == val_tel_est)
-        | (df["estado_tel3"] == val_tel_est)
+        (df["estado_tel1"] == v)
+        | (df["estado_tel2"] == v)
+        | (df["estado_tel3"] == v)
     ]
-
   if (
       st.session_state.get(f"filtro_mercado_{key_suffix}", "Todos") != "Todos"
       and "sector" in df.columns
   ):
-    val_mercado = st.session_state[f"filtro_mercado_{key_suffix}"]
-    df = df[df["sector"] == val_mercado]
-
+    df = df[df["sector"] == st.session_state[f"filtro_mercado_{key_suffix}"]]
   if (
       st.session_state.get(f"filtro_est_gral_{key_suffix}", "Todos") != "Todos"
       and "estatus" in df.columns
   ):
-    val_est_gral = st.session_state[f"filtro_est_gral_{key_suffix}"]
-    df = df[df["estatus"] == val_est_gral]
-
+    df = df[df["estatus"] == st.session_state[f"filtro_est_gral_{key_suffix}"]]
   if (
       st.session_state.get(f"filtro_usuario_{key_suffix}", "Todos") != "Todos"
       and "telefonista_asignada" in df.columns
   ):
-    val_usu = st.session_state[f"filtro_usuario_{key_suffix}"]
-    df = df[df["telefonista_asignada"] == val_usu]
-
-  if (
-      st.session_state.get(f"chk_edad_{key_suffix}", False)
-      and "edad" in df.columns
-  ):
-    df["temp_edad"] = pd.to_numeric(df["edad"], errors="coerce")
-    e_min = st.session_state.get(f"e_min_{key_suffix}", 18)
-    e_max = st.session_state.get(f"e_max_{key_suffix}", 80)
-    df = df[(df["temp_edad"] >= e_min) & (df["temp_edad"] <= e_max)]
-    df = df.drop(columns=["temp_edad"])
-
-  if (
-      st.session_state.get(f"chk_div_{key_suffix}", False)
-      and "dividendos" in df.columns
-  ):
-    df["temp_div_dt"] = pd.to_datetime(df["dividendos"], errors="coerce")
-    modo_d = st.session_state.get(
-        f"modo_div_{key_suffix}", "Rango (Desde - Hasta)"
-    )
-    if modo_d == "Rango (Desde - Hasta)":
-      d_ini = st.session_state.get(
-          f"div_ini_{key_suffix}", datetime.today().date()
-      )
-      d_fin = st.session_state.get(
-          f"div_fin_{key_suffix}", datetime.today().date()
-      )
-      df = df[
-          (df["temp_div_dt"].dt.date >= d_ini)
-          & (df["temp_div_dt"].dt.date <= d_fin)
-      ]
-    elif modo_d == "Por Mes Específico":
-      m_d = st.session_state.get(f"mes_div_{key_suffix}", 1)
-      a_d = st.session_state.get(
-          f"anio_div_{key_suffix}", datetime.today().year
-      )
-      df = df[
-          (df["temp_div_dt"].dt.month == m_d)
-          & (df["temp_div_dt"].dt.year == a_d)
-      ]
-    else:
-      a_d = st.session_state.get(
-          f"anio_comp_div_{key_suffix}", datetime.today().year
-      )
-      df = df[df["temp_div_dt"].dt.year == a_d]
-    df = df.drop(columns=["temp_div_dt"])
-
-  if (
-      st.session_state.get(f"chk_asig_{key_suffix}", False)
-      and "ult_fecha_asignacion" in df.columns
-  ):
-    df["temp_asig_dt"] = pd.to_datetime(
-        df["ult_fecha_asignacion"], errors="coerce"
-    )
-    modo_a = st.session_state.get(
-        f"modo_asig_{key_suffix}", "Rango (Desde - Hasta)"
-    )
-    if modo_a == "Rango (Desde - Hasta)":
-      as_ini = st.session_state.get(
-          f"asig_ini_{key_suffix}", datetime.today().date()
-      )
-      as_fin = st.session_state.get(
-          f"asig_fin_{key_suffix}", datetime.today().date()
-      )
-      df = df[
-          (df["temp_asig_dt"].dt.date >= as_ini)
-          & (df["temp_asig_dt"].dt.date <= as_fin)
-      ]
-    elif modo_a == "Por Mes Específico":
-      m_a = st.session_state.get(f"mes_asig_{key_suffix}", 1)
-      a_a = st.session_state.get(
-          f"anio_asig_{key_suffix}", datetime.today().year
-      )
-      df = df[
-          (df["temp_asig_dt"].dt.month == m_a)
-          & (df["temp_asig_dt"].dt.year == a_a)
-      ]
-    else:
-      a_a = st.session_state.get(
-          f"anio_comp_asig_{key_suffix}", datetime.today().year
-      )
-      df = df[df["temp_asig_dt"].dt.year == a_a]
-    df = df.drop(columns=["temp_asig_dt"])
-
-  if (
-      st.session_state.get(f"chk_mov_{key_suffix}", False)
-      and "fecha_ult_mov" in df.columns
-  ):
-    df["temp_mov_dt"] = pd.to_datetime(df["fecha_ult_mov"], errors="coerce")
-    modo_m = st.session_state.get(
-        f"modo_mov_{key_suffix}", "Rango (Desde - Hasta)"
-    )
-    if modo_m == "Rango (Desde - Hasta)":
-      mv_ini = st.session_state.get(
-          f"mov_ini_{key_suffix}", datetime.today().date()
-      )
-      mv_fin = st.session_state.get(
-          f"mov_fin_{key_suffix}", datetime.today().date()
-      )
-      df = df[
-          (df["temp_mov_dt"].dt.date >= mv_ini)
-          & (df["temp_mov_dt"].dt.date <= mv_fin)
-      ]
-    elif modo_m == "Por Mes Específico":
-      m_mv = st.session_state.get(f"mes_mov_{key_suffix}", 1)
-      a_mv = st.session_state.get(
-          f"anio_mov_{key_suffix}", datetime.today().year
-      )
-      df = df[
-          (df["temp_mov_dt"].dt.month == m_mv)
-          & (df["temp_mov_dt"].dt.year == a_mv)
-      ]
-    else:
-      a_mv = st.session_state.get(
-          f"anio_comp_mov_{key_suffix}", datetime.today().year
-      )
-      df = df[df["temp_mov_dt"].dt.year == a_mv]
-    df = df.drop(columns=["temp_mov_dt"])
+    df = df[
+        df["telefonista_asignada"]
+        == st.session_state[f"filtro_usuario_{key_suffix}"]
+    ]
 
   if "Seleccionar" not in df.columns:
     df.insert(0, "Seleccionar", False)
 
   st.session_state["lista_rfcs_navegacion"] = df["rfc"].tolist()
-
-  total_filas_filtradas = len(df)
-  total_paginas_filtradas = (
-      max(1, (total_filas_filtradas - 1) // cant_por_pagina + 1)
-      if total_filas_filtradas > 0
-      else 1
+  tot_filt = len(df)
+  tot_pags = (
+      max(1, (tot_filt - 1) // cant_por_pagina + 1) if tot_filt > 0 else 1
   )
 
-  if total_filas_filtradas > cant_por_pagina:
-    pagina_actual = st.selectbox(
-        f"📄 Páginas disponibles (Mostrando bloques de 100 de {total_filas_filtradas}"
-        " registros coincidentes):",
-        range(1, total_paginas_filtradas + 1),
+  if tot_filt > cant_por_pagina:
+    p_act = st.selectbox(
+        f"📄 Páginas (Bloques de 100 de {tot_filt} coincidentes):",
+        range(1, tot_pags + 1),
         key=f"pag_num_{key_suffix}",
     )
-    inicio = (pagina_actual - 1) * cant_por_pagina
-    fin = min(inicio + cant_por_pagina, total_filas_filtradas)
-    df_a_mostrar = df.iloc[inicio:fin].copy()
+    df_a_mostrar = df.iloc[
+        (p_act - 1) * cant_por_pagina : p_act * cant_por_pagina
+    ].copy()
   else:
     df_a_mostrar = df.copy()
 
-  seleccionados_previos = st.session_state.get(f"sel_rfcs_{key_suffix}", [])
-  df_a_mostrar["Seleccionar"] = df_a_mostrar["rfc"].isin(
-      seleccionados_previos
-  )
+  sel_prev = st.session_state.get(f"sel_rfcs_{key_suffix}", [])
+  df_a_mostrar["Seleccionar"] = df_a_mostrar["rfc"].isin(sel_prev)
 
   column_config = {
       "Seleccionar": st.column_config.CheckboxColumn(
@@ -1064,20 +662,16 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
       ),
       "rfc": st.column_config.TextColumn("RFC / ID", width="medium"),
   }
-  columnas_deshabilitadas = [c for c in df.columns if c not in ["Seleccionar"]]
+  cols_dis = [c for c in df.columns if c not in ["Seleccionar"]]
 
-  if seleccionados_previos:
-    col_vacia, col_btn = st.columns([3.2, 1.3])
-    with col_btn:
-      if st.button(
-          "🚀 Abrir / Ver Ficha",
-          key=f"btn_superior_{key_suffix}",
-          use_container_width=True,
-      ):
-        st.session_state["prospecto_editar_rfc"] = str(
-            seleccionados_previos[0]
-        )
-        st.rerun()
+  if sel_prev:
+    if st.button(
+        "🚀 Abrir / Ver Ficha",
+        key=f"btn_sup_{key_suffix}",
+        use_container_width=True,
+    ):
+      st.session_state["prospecto_editar_rfc"] = str(sel_prev[0])
+      st.rerun()
 
   editor_res = st.data_editor(
       df_a_mostrar,
@@ -1085,35 +679,28 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix):
       use_container_width=True,
       hide_index=True,
       column_config=column_config,
-      disabled=columnas_deshabilitadas,
+      disabled=cols_dis,
   )
 
-  seleccionados_actuales = editor_res[editor_res["Seleccionar"] == True]
-  rfcs_sel_en_vista = seleccionados_actuales["rfc"].tolist()
+  sel_actual = editor_res[editor_res["Seleccionar"] == True]["rfc"].tolist()
+  otros = [r for r in sel_prev if r not in df_a_mostrar["rfc"].tolist()]
+  final_sel = list(set(otros + sel_actual))
 
-  rfcs_otros = [
-      r
-      for r in seleccionados_previos
-      if r not in df_a_mostrar["rfc"].tolist()
-  ]
-  rfcs_finales = list(set(rfcs_otros + rfcs_sel_en_vista))
-
-  if rfcs_finales != seleccionados_previos:
-    st.session_state[f"sel_rfcs_{key_suffix}"] = rfcs_finales
+  if final_sel != sel_prev:
+    st.session_state[f"sel_rfcs_{key_suffix}"] = final_sel
     st.rerun()
 
   return editor_res
 
 
-if "usuario_logueado" not in st.session_state:
-  st.session_state["usuario_logueado"] = None
-  st.session_state["rol"] = None
-
-if "prospecto_editar_rfc" not in st.session_state:
-  st.session_state["prospecto_editar_rfc"] = None
-
-if "lista_rfcs_navegacion" not in st.session_state:
-  st.session_state["lista_rfcs_navegacion"] = []
+for k, v in [
+    ("usuario_logueado", None),
+    ("rol", None),
+    ("prospecto_editar_rfc", None),
+    ("lista_rfcs_navegacion", []),
+]:
+  if k not in st.session_state:
+    st.session_state[k] = v
 
 st.markdown(
     """
@@ -1134,53 +721,57 @@ if st.session_state["usuario_logueado"] is None:
   _, col_centro, _ = st.columns([1, 1.5, 1])
   with col_centro:
     st.markdown("### 🔑 Iniciar Sesión en el Sistema")
-    usr = st.text_input("Usuario")
-    pwd = st.text_input("Contraseña", type="password")
+    usr, pwd = st.text_input("Usuario"), st.text_input(
+        "Contraseña", type="password"
+    )
     if st.button("Entrar al Sistema", use_container_width=True):
       datos = autenticar(usr, pwd)
       if datos:
-        st.session_state["usuario_logueado"] = datos[0]
-        st.session_state["rol"] = datos[1]
+        st.session_state["usuario_logueado"], st.session_state["rol"] = (
+            datos[0],
+            datos[1],
+        )
         st.rerun()
       else:
         st.error("Usuario o contraseña incorrectos")
 else:
-  rol = st.session_state["rol"]
-  usuario = st.session_state["usuario_logueado"]
+  rol, usuario = st.session_state["rol"], st.session_state["usuario_logueado"]
 
-  if rol == "Administrador":
-    opciones = [
-        "1. Cargar Base General",
-        "2. Ver Banco de Prospectos",
-        "3. Gestión y Asignación de Prospectos",
-        "4. Reporte de Citas y Eficiencia",
-        "5. Reporte de Seguimiento Telefonistas",
-        "6. Gestión de Usuarios y Roles",
-    ]
-  elif rol == "Telefonista":
-    opciones = [
-        "Mis Prospectos y Gestión",
-        "Mis Citas Agendadas",
-    ]
-  else:
-    opciones = [
-        "Mis Prospectos Asignados",
-        "Bolsa de Citas del Día (Asesores)",
-        "Mis Registros de Hoy",
-        "📊 Reportes de Citas y Asistencias",
-    ]
+  opciones = (
+      [
+          "1. Cargar Base General",
+          "2. Ver Banco de Prospectos",
+          "3. Gestión y Asignación de Prospectos",
+          "4. Reporte de Citas y Eficiencia",
+          "5. Reporte de Seguimiento Telefonistas",
+          "6. Gestión de Usuarios y Roles",
+      ]
+      if rol == "Administrador"
+      else (
+          ["Mis Prospectos y Gestión", "Mis Citas Agendadas"]
+          if rol == "Telefonista"
+          else [
+              "Mis Prospectos Asignados",
+              "Bolsa de Citas del Día (Asesores)",
+              "Mis Registros de Hoy",
+              "📊 Reportes de Citas y Asistencias",
+          ]
+      )
+  )
 
   col_menu_izq, col_info_der = st.columns([1, 3])
-
   with col_menu_izq:
     with st.popover("∷ Menú"):
       opcion = st.radio("Selecciona una sección:", opciones)
       st.markdown("---")
       if st.button("🚪 Cerrar Sesión", use_container_width=True):
-        st.session_state["usuario_logueado"] = None
-        st.session_state["rol"] = None
-        st.session_state["prospecto_editar_rfc"] = None
-        st.session_state["lista_rfcs_navegacion"] = []
+        for k in [
+            "usuario_logueado",
+            "rol",
+            "prospecto_editar_rfc",
+            "lista_rfcs_navegacion",
+        ]:
+          st.session_state[k] = None if k != "lista_rfcs_navegacion" else []
         st.rerun()
 
   with col_info_der:
@@ -1196,21 +787,20 @@ else:
   if st.session_state["prospecto_editar_rfc"] is not None:
     rfc_actual = st.session_state["prospecto_editar_rfc"]
     lista_rfcs = st.session_state["lista_rfcs_navegacion"]
-
     pos_actual = lista_rfcs.index(rfc_actual) if rfc_actual in lista_rfcs else 0
     total_prospectos = len(lista_rfcs) if lista_rfcs else 1
 
-    CURSOR.execute(
-        """
+    with engine.connect() as conn_sql:
+      row = conn_sql.exec_driver_sql(
+          """
             SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, 
                    dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
                    observaciones_tel, observaciones_asesor, telefonista_asignada, estatus,
                    estado_tel1, estado_tel2, estado_tel3
-            FROM clientes WHERE rfc = ?
+            FROM clientes WHERE rfc = %s
         """,
-        (rfc_actual,),
-    )
-    row = CURSOR.fetchone()
+          (rfc_actual,),
+      ).fetchone()
 
     if not row:
       st.error("No se encontró la información del prospecto.")
@@ -1233,7 +823,6 @@ else:
             f"fulfasig_{rfc_actual}", parsear_a_date(row[9])
         )
         n_mov = st.session_state.get(f"ffum_{rfc_actual}", parsear_a_date(row[11]))
-
         est_t1 = st.session_state.get(f"est_t1_{rfc_actual}", row[16])
         est_t2 = st.session_state.get(f"est_t2_{rfc_actual}", row[17])
         est_t3 = st.session_state.get(f"est_t3_{rfc_actual}", row[18])
@@ -1243,46 +832,58 @@ else:
         telefono_general = (
             " / ".join(tels_disp) if tels_disp else "Sin Teléfono"
         )
-        asignacion_final = row[14]
-        estatus_final = row[15]
 
-        if rfc_limpio != rfc_actual:
-          CURSOR.execute("DELETE FROM clientes WHERE rfc = ?", (rfc_actual,))
+        with engine.begin() as conn_sql:
+          if rfc_limpio != rfc_actual:
+            conn_sql.exec_driver_sql(
+                "DELETE FROM clientes WHERE rfc = %s", (rfc_actual,)
+            )
 
-        CURSOR.execute(
-            """
-                    INSERT OR REPLACE INTO clientes (
-                        rfc, nombre, apellido, tel1, tel2, tel3, telefono, sector, 
-                        poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
-                        observaciones_tel, observaciones_asesor, telefonista_asignada, estatus,
-                        estado_tel1, estado_tel2, estado_tel3
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-            (
-                rfc_limpio,
-                n_nombre,
-                n_apellido,
-                n_t1,
-                n_t2,
-                n_t3,
-                telefono_general,
-                n_sector,
-                n_poliza,
-                str(n_div),
-                str(n_asig_f),
-                edad_nueva,
-                str(n_mov),
-                row[12],
-                row[13],
-                asignacion_final,
-                estatus_final,
-                est_t1,
-                est_t2,
-                est_t3,
-            ),
-        )
-        CONN.commit()
+          conn_sql.exec_driver_sql(
+              """
+                INSERT INTO clientes (
+                    rfc, nombre, apellido, tel1, tel2, tel3, telefono, sector, 
+                    poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
+                    observaciones_tel, observaciones_asesor, telefonista_asignada, estatus,
+                    estado_tel1, estado_tel2, estado_tel3
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (rfc) DO UPDATE SET
+                    nombre = EXCLUDED.nombre,
+                    apellido = EXCLUDED.apellido,
+                    tel1 = EXCLUDED.tel1,
+                    tel2 = EXCLUDED.tel2,
+                    tel3 = EXCLUDED.tel3,
+                    telefono = EXCLUDED.telefono,
+                    sector = EXCLUDED.sector,
+                    poliza = EXCLUDED.poliza,
+                    estado_tel1 = EXCLUDED.estado_tel1,
+                    estado_tel2 = EXCLUDED.estado_tel2,
+                    estado_tel3 = EXCLUDED.estado_tel3
+            """,
+              (
+                  rfc_limpio,
+                  n_nombre,
+                  n_apellido,
+                  n_t1,
+                  n_t2,
+                  n_t3,
+                  telefono_general,
+                  n_sector,
+                  n_poliza,
+                  str(n_div),
+                  str(n_asig_f),
+                  edad_nueva,
+                  str(n_mov),
+                  row[12],
+                  row[13],
+                  row[14],
+                  row[15],
+                  est_t1,
+                  est_t2,
+                  est_t3,
+              ),
+          )
 
         if destino == "siguiente":
           if pos_actual < total_prospectos - 1:
@@ -1320,9 +921,7 @@ else:
         if st.button("❌ Cerrar", use_container_width=True, key="c_ficha"):
           ejecutar_guardado_y_salto("cerrar")
 
-      nombre_completo_id = (
-          f"{str(row[1]).strip().upper()} {str(row[2]).strip().upper()}"
-      )
+      nombre_completo_id = f"{str(row[1]).strip().upper()} {str(row[2]).strip().upper()}"
       st.markdown(
           f"## 📋 Ficha Prospecto [RFC: {row[0]}] - {nombre_completo_id}"
       )
@@ -1335,186 +934,138 @@ else:
           "",
       ]:
         if st.button("🙋‍♂ ¡Tomar este prospecto para mí!"):
-          CURSOR.execute(
-              "UPDATE clientes SET telefonista_asignada = ?, estatus ="
-              " 'Asignado' WHERE rfc = ?",
-              (usuario, rfc_actual),
-          )
-          CONN.commit()
+          with engine.begin() as conn_sql:
+            conn_sql.exec_driver_sql(
+                "UPDATE clientes SET telefonista_asignada = %s, estatus ="
+                " 'Asignado' WHERE rfc = %s",
+                (usuario, rfc_actual),
+            )
           st.success("¡Te has asignado el prospecto exitosamente!")
           st.rerun()
 
       col1, col2 = st.columns(2)
       with col1:
-        nuevo_rfc = st.text_input(
-            "RFC", value=str(row[0] or ""), key=f"frfc_{rfc_actual}"
-        )
-        nuevo_nombre = st.text_input(
+        st.text_input("RFC", value=str(row[0] or ""), key=f"frfc_{rfc_actual}")
+        st.text_input(
             "Nombre(s)", value=str(row[1] or ""), key=f"fn_{rfc_actual}"
         )
-        nuevo_apellido = st.text_input(
+        st.text_input(
             "Apellidos", value=str(row[2] or ""), key=f"fa_{rfc_actual}"
         )
 
         st.markdown("---")
         st.markdown("#### 📞 Control de Números Telefónicos y Estatus")
-
-        t1_val = str(row[3] or "")
-        est_t1_val = row[16] if row[16] else "Sin marcar"
         opciones_estados = [
             "Sin marcar",
             "Válido / Contesta",
             "Número Erróneo / Malo",
             "No Contesta / Buzón",
         ]
-        idx1 = (
-            opciones_estados.index(est_t1_val)
-            if est_t1_val in opciones_estados
-            else 0
-        )
 
-        col_t1a, col_t1b = st.columns([1.2, 1.8])
-        with col_t1a:
-          nuevo_tel1 = st.text_input(
-              "TEL 1", value=t1_val, key=f"ftel1_{rfc_actual}"
+        for i, (t_col, est_col) in enumerate(
+            [(3, 16), (4, 17), (5, 18)], start=1
+        ):
+          t_val = str(row[t_col] or "")
+          est_val = row[est_col] if row[est_col] else "Sin marcar"
+          idx = (
+              opciones_estados.index(est_val)
+              if est_val in opciones_estados
+              else 0
           )
-        with col_t1b:
-          st.selectbox(
-              "Estatus Tel 1",
-              opciones_estados,
-              index=idx1,
-              key=f"est_t1_{rfc_actual}",
-          )
-
-        t2_val = str(row[4] or "")
-        est_t2_val = row[17] if row[17] else "Sin marcar"
-        idx2 = (
-            opciones_estados.index(est_t2_val)
-            if est_t2_val in opciones_estados
-            else 0
-        )
-
-        col_t2a, col_t2b = st.columns([1.2, 1.8])
-        with col_t2a:
-          nuevo_tel2 = st.text_input(
-              "TEL 2", value=t2_val, key=f"ftel2_{rfc_actual}"
-          )
-        with col_t2b:
-          st.selectbox(
-              "Estatus Tel 2",
-              opciones_estados,
-              index=idx2,
-              key=f"est_t2_{rfc_actual}",
-          )
-
-        t3_val = str(row[5] or "")
-        est_t3_val = row[18] if row[18] else "Sin marcar"
-        idx3 = (
-            opciones_estados.index(est_t3_val)
-            if est_t3_val in opciones_estados
-            else 0
-        )
-
-        col_t3a, col_t3b = st.columns([1.2, 1.8])
-        with col_t3a:
-          nuevo_tel3 = st.text_input(
-              "TEL 3", value=t3_val, key=f"ftel3_{rfc_actual}"
-          )
-        with col_t3b:
-          st.selectbox(
-              "Estatus Tel 3",
-              opciones_estados,
-              index=idx3,
-              key=f"est_t3_{rfc_actual}",
-          )
+          c_t, c_e = st.columns([1.2, 1.8])
+          with c_t:
+            st.text_input(
+                f"TEL {i}", value=t_val, key=f"ftel{i}_{rfc_actual}"
+            )
+          with c_e:
+            st.selectbox(
+                f"Estatus Tel {i}",
+                opciones_estados,
+                index=idx,
+                key=f"est_t{i}_{rfc_actual}",
+            )
 
       with col2:
-        nuevo_sector = st.text_input(
+        st.text_input(
             "Dependencia", value=str(row[6] or ""), key=f"fs_{rfc_actual}"
         )
-        nuevo_poliza = st.text_input(
-            "Póliza", value=str(row[7] or ""), key=f"fp_{rfc_actual}"
+        st.text_input("Póliza", value=str(row[7] or ""), key=f"fp_{rfc_actual}")
+        st.date_input(
+            "Dividendos",
+            value=parsear_a_date(row[8]),
+            key=f"fdiv_{rfc_actual}",
         )
-
-        val_div = parsear_a_date(row[8])
-        nuevo_dividendos_dt = st.date_input(
-            "Dividendos", value=val_div, key=f"fdiv_{rfc_actual}"
-        )
-
-        val_asig = parsear_a_date(row[9])
-        nuevo_ult_fecha_asig_dt = st.date_input(
+        st.date_input(
             "Ult Fecha Asignación",
-            value=val_asig,
+            value=parsear_a_date(row[9]),
             key=f"fulfasig_{rfc_actual}",
         )
-
-        edad_calculada = calcular_edad_desde_rfc(nuevo_rfc)
         st.text_input(
             "Edad (Calculada/Registrada)",
-            value=str(row[10] or edad_calculada),
+            value=str(row[10] or calcular_edad_desde_rfc(row[0])),
             disabled=True,
             key=f"fedad_{rfc_actual}",
         )
-
-        val_mov = parsear_a_date(row[11])
-        nuevo_fecha_ult_mov_dt = st.date_input(
-            "Fecha Ult Mov", value=val_mov, key=f"ffum_{rfc_actual}"
+        st.date_input(
+            "Fecha Ult Mov",
+            value=parsear_a_date(row[11]),
+            key=f"ffum_{rfc_actual}",
         )
 
       st.markdown("---")
       st.subheader("📅 Cita Generada Activa")
-      CURSOR.execute(
-          """
+      with engine.connect() as conn_sql:
+        cita_reciente = conn_sql.exec_driver_sql(
+            """
             SELECT id, fecha, hora, estado, agente, notas FROM citas 
-            WHERE rfc_cliente = ? ORDER BY id DESC LIMIT 1
+            WHERE rfc_cliente = %s ORDER BY id DESC LIMIT 1
         """,
-          (rfc_actual,),
-      )
-      cita_reciente = CURSOR.fetchone()
+            (rfc_actual,),
+        ).fetchone()
 
       if cita_reciente:
         c_id, c_fecha, c_hora, c_estado, c_agente, c_notas = cita_reciente
         st.info(
-            f"📌 **Fecha:** {c_fecha} | **Hora:** {c_hora} | **Agente/Tele:**"
+            f"📌 **Fecha:** {c_fecha} | **Hora:** {c_hora} | **Agente:**"
             f" {c_agente} | **Estado:** `{c_estado}`"
         )
         if c_notas:
           st.caption(f"Notas: {c_notas}")
 
-        col_c_btn1, col_c_btn2, col_c_vacio = st.columns([1, 1, 2])
-        with col_c_btn1:
+        c_btn1, c_btn2, _ = st.columns([1, 1, 2])
+        with c_btn1:
           if st.button("✅ Asistió", key=f"asistio_{c_id}"):
-            CURSOR.execute(
-                "UPDATE citas SET estado = 'Asistida / Atendida' WHERE id = ?",
-                (c_id,),
-            )
-            CURSOR.execute(
-                "UPDATE clientes SET estatus = 'Cita Asistida' WHERE rfc = ?",
-                (rfc_actual,),
-            )
-            CONN.commit()
+            with engine.begin() as conn_sql:
+              conn_sql.exec_driver_sql(
+                  "UPDATE citas SET estado = 'Asistida / Atendida' WHERE id ="
+                  " %s",
+                  (c_id,),
+              )
+              conn_sql.exec_driver_sql(
+                  "UPDATE clientes SET estatus = 'Cita Asistida' WHERE rfc ="
+                  " %s",
+                  (rfc_actual,),
+              )
             st.success("¡Cita marcada como Asistida!")
             st.rerun()
-        with col_c_btn2:
+        with c_btn2:
           if st.button("❌ No Asistió", key=f"no_asistio_{c_id}"):
-            CURSOR.execute(
-                "UPDATE citas SET estado = 'No Asistió' WHERE id = ?", (c_id,)
-            )
-            CURSOR.execute(
-                "UPDATE clientes SET estatus = 'No Asistió' WHERE rfc = ?",
-                (rfc_actual,),
-            )
-            CONN.commit()
+            with engine.begin() as conn_sql:
+              conn_sql.exec_driver_sql(
+                  "UPDATE citas SET estado = 'No Asistió' WHERE id = %s",
+                  (c_id,),
+              )
+              conn_sql.exec_driver_sql(
+                  "UPDATE clientes SET estatus = 'No Asistió' WHERE rfc = %s",
+                  (rfc_actual,),
+              )
             st.warning("Cita marcada como No Asistió.")
             st.rerun()
       else:
-        st.caption(
-            "No hay citas generadas recientemente para este prospecto."
-        )
+        st.caption("No hay citas generadas recientemente para este prospecto.")
 
       st.markdown("---")
       st.subheader("📞 Registro de Llamada / Tareas")
-
       accion_llamada = st.selectbox(
           "Selecciona opción de llamada:",
           [
@@ -1535,107 +1086,101 @@ else:
         usa_agenda = accion_llamada in ["Cita", "Posible Asistencia"]
 
         if usa_agenda:
-          f_cita_input = st.date_input("Fecha de Cita", value=datetime.today())
-          bloques_horas = []
-          for hora_h in range(9, 17):
-            for min_m in [0, 30]:
-              if hora_h == 16 and min_m > 0:
-                break
-              bloques_horas.append(f"{hora_h:02d}:{min_m:02d}")
-
-          h_cita_input = st.selectbox(
-              "Hora de Cita (Bloques de 30 min - 9:00 AM a 4:00 PM)",
-              bloques_horas,
+          f_cita = st.date_input(
+              "Fecha de Cita", value=obtener_ahora_mexico().date()
           )
+          bloques_horas = []
+          for h in range(9, 17):
+            for m in [0, 30]:
+              if h == 16 and m > 0:
+                break
+              bloques_horas.append(f"{h:02d}:{m:02d}")
+          h_cita = st.selectbox("Hora de Cita (9:00 AM a 4:00 PM)", bloques_horas)
         else:
           st.info(
-              f"📌 Campos de fecha y hora bloqueados/ocultos para **{accion_llamada}**."
-              " Se registrará automáticamente con la fecha y hora actual en el"
-              " historial."
+              f"📌 Campos de fecha y hora bloqueados para **{accion_llamada}**."
+              " Se registrará automáticamente."
           )
-          f_cita_input = datetime.today().date()
-          h_cita_input = datetime.now().strftime("%H:%M")
+          f_cita, h_cita = (
+              obtener_ahora_mexico().date(),
+              obtener_ahora_mexico().strftime("%H:%M"),
+          )
 
-        btn_guardar_llamada = st.form_submit_button(
+        if st.form_submit_button(
             "💾 Registrar Acción", use_container_width=True
-        )
-
-        if btn_guardar_llamada:
-          ahora_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-          if usa_agenda:
-            guardar_cita(
-                rfc_actual,
-                nombre_completo_id,
-                row[3] if row[3] else "Sin Teléfono",
-                usuario,
-                f_cita_input,
-                h_cita_input,
-                "Pendiente",
-                detalle_accion,
-            )
-            estatus_nuevo = (
-                "Cita Agendada"
-                if accion_llamada == "Cita"
-                else "Posible Asistencia"
-            )
-            CURSOR.execute(
-                "UPDATE clientes SET estatus = ? WHERE rfc = ?",
-                (estatus_nuevo, rfc_actual),
-            )
-            st.success(f"✅ ¡{accion_llamada} registrada exitosamente!")
-          else:
-            CURSOR.execute(
-                """
-                        INSERT INTO historial_llamadas (rfc_cliente, usuario, accion, detalle, fecha_registro)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-                (
-                    rfc_actual,
-                    usuario,
-                    accion_llamada,
-                    detalle_accion,
-                    ahora_local,
-                ),
-            )
-            CURSOR.execute(
-                "UPDATE clientes SET estatus = ? WHERE rfc = ?",
-                (f"En Seguimiento ({accion_llamada})", rfc_actual),
-            )
-            st.success(
-                f"✅ ¡{accion_llamada} registrado en el historial con éxito!"
-            )
-          CONN.commit()
+        ):
+          ahora_local = obtener_ahora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+          with engine.begin() as conn_sql:
+            if usa_agenda:
+              guardar_cita(
+                  rfc_actual,
+                  nombre_completo_id,
+                  row[3] if row[3] else "Sin Teléfono",
+                  usuario,
+                  f_cita,
+                  h_cita,
+                  "Pendiente",
+                  detalle_accion,
+              )
+              est_nuevo = (
+                  "Cita Agendada"
+                  if accion_llamada == "Cita"
+                  else "Posible Asistencia"
+              )
+              conn_sql.exec_driver_sql(
+                  "UPDATE clientes SET estatus = %s WHERE rfc = %s",
+                  (est_nuevo, rfc_actual),
+              )
+              st.success(f"✅ ¡{accion_llamada} registrada exitosamente!")
+            else:
+              conn_sql.exec_driver_sql(
+                  """
+                    INSERT INTO historial_llamadas (rfc_cliente, usuario, accion, detalle, fecha_registro)
+                    VALUES (%s, %s, %s, %s, %s)
+                """,
+                  (
+                      rfc_actual,
+                      usuario,
+                      accion_llamada,
+                      detalle_accion,
+                      ahora_local,
+                  ),
+              )
+              conn_sql.exec_driver_sql(
+                  "UPDATE clientes SET estatus = %s WHERE rfc = %s",
+                  (f"En Seguimiento ({accion_llamada})", rfc_actual),
+              )
+              st.success(f"✅ ¡{accion_llamada} registrado en el historial!")
           st.rerun()
 
       st.markdown("---")
       st.subheader("📜 HISTORIAL DE LLAMADAS")
-      df_historial = pd.read_sql_query(
+      df_hist = pd.read_sql(
           """
-            SELECT fecha_registro as 'Fecha/Hora', usuario as 'Usuario', accion as 'Acción', detalle as 'Detalle'
-            FROM historial_llamadas WHERE rfc_cliente = ? ORDER BY id DESC
+            SELECT fecha_registro as "Fecha/Hora", usuario as "Usuario", accion as "Acción", detalle as "Detalle"
+            FROM historial_llamadas WHERE rfc_cliente = %s ORDER BY id DESC
         """,
-          CONN,
+          con=engine,
           params=(rfc_actual,),
       )
-
-      if df_historial.empty:
+      if df_hist.empty:
         st.info("No hay registros previos en el historial de llamadas.")
       else:
-        html_table = df_historial.to_html(
-            classes="custom-table", index=False, escape=False
+        st.markdown(
+            df_hist.to_html(classes="custom-table", index=False, escape=False),
+            unsafe_allow_html=True,
         )
-        st.markdown(html_table, unsafe_allow_html=True)
 
       st.markdown("---")
-      col_b1, col_b2, col_b3 = st.columns([1, 1, 1])
-      with col_b1:
-        if st.button("⬅️ Guardar y Anterior", key=f"btn_ant_{rfc_actual}"):
+      cb1, cb2, cb3 = st.columns(3)
+      with cb1:
+        if st.button("⬅️ Guardar y Anterior", key=f"b_ant_{rfc_actual}"):
           ejecutar_guardado_y_salto("anterior")
-      with col_b2:
-        if st.button("💾 Guardar y Cerrar", key=f"btn_sol_{rfc_actual}"):
+      with cb2:
+        if st.button("💾 Guardar y Cerrar", key=f"b_cer_{rfc_actual}"):
           ejecutar_guardado_y_salto("cerrar")
-      with col_b3:
-        if st.button("💾 Guardar y Siguiente ➡", key=f"btn_sig_{rfc_actual}"):
+      with cb3:
+        if st.button("💾 Guardar y Siguiente ➡", key=f"b_sig_{rfc_actual}"):
           ejecutar_guardado_y_salto("siguiente")
 
   else:
@@ -1647,43 +1192,38 @@ else:
         )
         if archivo is not None:
           try:
-            nombre_archivo = archivo.name.lower()
-            if nombre_archivo.endswith(".csv"):
-              try:
-                df_cargado = pd.read_csv(archivo, encoding="utf-8")
-              except UnicodeDecodeError:
-                archivo.seek(0)
-                df_cargado = pd.read_csv(archivo, encoding="latin1")
-            else:
-              df_cargado = pd.read_excel(archivo, engine="openpyxl")
-
+            df_cargado = (
+                pd.read_csv(archivo, encoding="utf-8")
+                if archivo.name.lower().endswith(".csv")
+                else pd.read_excel(archivo, engine="openpyxl")
+            )
             st.dataframe(df_cargado.head(10), use_container_width=True)
             if st.button("Guardar en Banco General"):
               total = cargar_base_general(df_cargado)
               st.success(
-                  f"✅ ¡Se cargaron {total} prospectos exitosamente con"
-                  " fechas limpias!"
+                  f"✅ ¡Se cargaron {total} prospectos exitosamente!"
               )
           except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
 
       elif opcion == "2. Ver Banco de Prospectos":
         st.header("📊 Banco General de Prospectos")
-        df_banco = pd.read_sql_query(
+        df_banco = pd.read_sql(
             "SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza,"
             " dividendos, ult_fecha_asignacion, edad, telefonista_asignada,"
             " estatus, estado_tel1, estado_tel2, estado_tel3 FROM clientes",
-            CONN,
+            con=engine,
         )
         if df_banco.empty:
           st.warning("No hay clientes registrados.")
         else:
-          renderizar_bloque_con_tabla(df_banco, key_suffix="banco")
+          renderizar_bloque_con_tabla(
+              df_banco, key_suffix="banco", ocultar_tels=False
+          )
 
       elif opcion == "3. Gestión y Asignación de Prospectos":
         st.header("🔄 Gestión y Asignación de Prospectos")
         col_busq, col_filt, col_crear = st.columns([2, 2, 1])
-
         with col_busq:
           busqueda = st.text_input(
               "🔎 Buscar por RFC, Nombre, Apellido o Teléfono:"
@@ -1700,116 +1240,45 @@ else:
           if st.button("➕ Crear Nuevo", use_container_width=True):
             modal_crear_prospecto(usuario, rol)
 
-        filtro_campo_fecha = "Sin filtro de fecha"
-        filtro_f_ini = datetime.today().replace(year=2020)
-        filtro_f_fin = datetime.today()
-        filtro_dependencia = "Todas"
-        filtro_estatus_sel = "Todos"
-        filtro_asignado_sel = "Todos"
-
-        if activar_filtros:
-          with st.expander("🛠 Parámetros de Filtrado Avanzado", expanded=True):
-            col_fa1, col_fa2, col_fa3 = st.columns(3)
-            with col_fa1:
-              filtro_campo_fecha = st.selectbox(
-                  "Filtrar por tipo de fecha:",
-                  [
-                      "Sin filtro de fecha",
-                      "Fecha Último Movimiento",
-                      "Fecha de Asignación",
-                      "Fecha de Dividendos",
-                  ],
-              )
-            with col_fa2:
-              filtro_f_ini = st.date_input(
-                  "Desde:", value=datetime.today().replace(year=2020)
-              )
-            with col_fa3:
-              filtro_f_fin = st.date_input("Hasta:", value=datetime.today())
-
-            col_fb1, col_fb2, col_fb3 = st.columns(3)
-            with col_fb1:
-              deps_db = [
-                  row[0]
-                  for row in CURSOR.execute(
-                      "SELECT DISTINCT sector FROM clientes WHERE sector IS NOT NULL AND sector != ''"
-                  ).fetchall()
-              ]
-              filtro_dependencia = st.selectbox(
-                  "Dependencia / Sector:", ["Todas"] + deps_db
-              )
-            with col_fb2:
-              estatus_db = [
-                  row[0]
-                  for row in CURSOR.execute(
-                      "SELECT DISTINCT estatus FROM clientes WHERE estatus IS NOT NULL"
-                  ).fetchall()
-              ]
-              filtro_estatus_sel = st.selectbox(
-                  "Estatus:", ["Todos"] + estatus_db
-              )
-            with col_fb3:
-              tels_db = obtener_usuarios_por_rol(
-                  "Telefonista"
-              ) + obtener_usuarios_por_rol("Asesor")
-              filtro_asignado_sel = st.selectbox(
-                  "Asignado a:", ["Todos", "Sin Asignar"] + tels_db
-              )
-
         condiciones = []
+        params_query = []
         if busqueda:
           condiciones.append(
-              f"(rfc LIKE '%{busqueda}%' OR nombre LIKE '%{busqueda}%' OR apellido LIKE '%{busqueda}%' OR tel1 LIKE '%{busqueda}%')"
+              "(rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s OR tel1"
+              " ILIKE %s)"
           )
-        if filtro_campo_fecha != "Sin filtro de fecha":
-          columna_bd_map = {
-              "Fecha Último Movimiento": "fecha_ult_mov",
-              "Fecha de Asignación": "ult_fecha_asignacion",
-              "Fecha de Dividendos": "dividendos",
-          }
-          col_sql = columna_bd_map[filtro_campo_fecha]
-          condiciones.append(
-              f"({col_sql} BETWEEN '{filtro_f_ini}' AND '{filtro_f_fin}')"
-          )
-        if filtro_dependencia != "Todas":
-          condiciones.append(f"sector = '{filtro_dependencia}'")
-        if filtro_estatus_sel != "Todos":
-          condiciones.append(f"estatus = '{filtro_estatus_sel}'")
-        if filtro_asignado_sel != "Todos":
-          condiciones.append(
-              f"telefonista_asignada = '{filtro_asignado_sel}'"
-          )
+          patron = f"%{busqueda}%"
+          params_query.extend([patron, patron, patron, patron])
 
         query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3 FROM clientes"
         if condiciones:
           query += " WHERE " + " AND ".join(condiciones)
         query += " ORDER BY fecha_creacion DESC LIMIT 1000"
 
-        df_resultados = pd.read_sql_query(query, CONN)
-
+        df_resultados = pd.read_sql(
+            query, con=engine, params=params_query if params_query else None
+        )
         if df_resultados.empty:
           st.warning(
               "No se encontraron prospectos con los filtros seleccionados."
           )
         else:
-          editor_res = renderizar_bloque_con_tabla(
-              df_resultados, key_suffix="gestion_admin"
+          renderizar_bloque_con_tabla(
+              df_resultados, key_suffix="gestion_admin", ocultar_tels=False
           )
-          rfcs_seleccionados_global = st.session_state.get(
-              "sel_rfcs_gestion_admin", []
-          )
-          cant_seleccionados = len(rfcs_seleccionados_global)
+          rfcs_sel_global = st.session_state.get("sel_rfcs_gestion_admin", [])
+          cant_sel = len(rfcs_sel_global)
 
           st.markdown("---")
           st.subheader("⚡ Actualización y Asignación Masiva")
-          col1, col2, col3 = st.columns([2, 2, 1])
-          with col1:
+          c1, c2, c3 = st.columns([2, 2, 1])
+          with c1:
             tele_destino = st.selectbox(
                 "Asignar a:",
                 obtener_usuarios_por_rol("Telefonista")
                 + obtener_usuarios_por_rol("Asesor"),
             )
-          with col2:
+          with c2:
             estatus_masivo = st.selectbox(
                 "Cambiar Estatus A:",
                 [
@@ -1819,78 +1288,40 @@ else:
                     "No Interesado",
                 ],
             )
-          with col3:
-            st.metric("Seleccionados", cant_seleccionados)
+          with c3:
+            st.metric("Seleccionados", cant_sel)
 
           if st.button("🚀 Aplicar Cambios Masivos"):
-            if cant_seleccionados == 0:
-              st.warning(
-                  "⚠️ Marca la casilla 'Seleccionar' en la tabla para aplicar"
-                  " cambios."
-              )
+            if cant_sel == 0:
+              st.warning("⚠️ Marca la casilla 'Seleccionar' en la tabla.")
             else:
-              rfcs_a_cambiar = rfcs_seleccionados_global
-              rfcs_str = ",".join([f"'{r}'" for r in rfcs_a_cambiar])
-              CURSOR.execute(
-                  "UPDATE clientes SET telefonista_asignada ="
-                  f" '{tele_destino}', estatus = '{estatus_masivo}' WHERE rfc"
-                  f" IN ({rfcs_str})"
-              )
-              CONN.commit()
+              with engine.begin() as conn_sql:
+                for rfc_item in rfcs_sel_global:
+                  conn_sql.exec_driver_sql(
+                      "UPDATE clientes SET telefonista_asignada = %s, estatus ="
+                      " %s WHERE rfc = %s",
+                      (tele_destino, estatus_masivo, rfc_item),
+                  )
               st.session_state["sel_rfcs_gestion_admin"] = []
               st.success(
-                  f"✅ ¡Se actualizaron {cant_seleccionados} prospectos"
-                  " correctamente!"
+                  f"✅ ¡Se actualizaron {cant_sel} prospectos correctamente!"
               )
               st.rerun()
 
       elif opcion == "4. Reporte de Citas y Eficiencia":
         st.header("📈 Reporte de Citas y Asistencias")
-        periodo_rep = st.selectbox(
-            "Selecciona Periodo de Reporte:",
-            ["Diario", "Semanal", "Mensual", "Anual", "Personalizado"],
+        f_rep = st.date_input(
+            "Fecha Base:", value=obtener_ahora_mexico().date()
         )
-        if periodo_rep == "Personalizado":
-          col_f1, col_f2 = st.columns(2)
-          with col_f1:
-            fecha_inicio = st.date_input("Fecha Inicio:", value=datetime.today())
-          with col_f2:
-            fecha_fin = st.date_input("Fecha Fin:", value=datetime.today())
-          filtro_fecha = f"fecha BETWEEN '{fecha_inicio}' AND '{fecha_fin}'"
-          tele_filtro = st.selectbox(
-              "Filtrar por Telefonista/Agente:",
-              ["Todas"] + obtener_usuarios_por_rol("Telefonista"),
-          )
-        else:
-          col_f1, col_f2 = st.columns(2)
-          with col_f1:
-            fecha_rep = st.date_input("Fecha Base:", value=datetime.today())
-          with col_f2:
-            tele_filtro = st.selectbox(
-                "Filtrar por Telefonista/Agente:",
-                ["Todas"] + obtener_usuarios_por_rol("Telefonista"),
-            )
-          if periodo_rep == "Diario":
-            filtro_fecha = f"fecha = '{fecha_rep}'"
-          elif periodo_rep == "Semanal":
-            filtro_fecha = (
-                f"fecha BETWEEN date('{fecha_rep}', 'weekday 0', '-6 days') AND"
-                f" date('{fecha_rep}', 'weekday 0')"
-            )
-          elif periodo_rep == "Mensual":
-            filtro_fecha = f"strftime('%Y-%m', fecha) = strftime('%Y-%m', '{fecha_rep}')"
-          else:
-            filtro_fecha = f"strftime('%Y', fecha) = strftime('%Y', '{fecha_rep}')"
-
-        query_citas = f"SELECT * FROM citas WHERE {filtro_fecha}"
-        if tele_filtro != "Todas":
-          query_citas += f" AND agente = '{tele_filtro}'"
-        df_rep = pd.read_sql_query(query_citas, CONN)
-
+        df_rep = pd.read_sql(
+            "SELECT * FROM citas WHERE fecha = %s",
+            con=engine,
+            params=(str(f_rep),),
+        )
         st.markdown("---")
         m1, m2, m3, m4 = st.columns(4)
-        total_citas = len(df_rep)
-        asistidas = (
+        tot_c = len(df_rep)
+        asis = (
             len(
                 df_rep[
                     df_rep["estado"].str.contains(
@@ -1901,528 +1332,249 @@ else:
             if not df_rep.empty
             else 0
         )
-        pendientes = (
+        pend = (
             len(df_rep[df_rep["estado"] == "Pendiente"])
             if not df_rep.empty
             else 0
         )
-        efectividad = (
-            f"{(asistidas / total_citas * 100):.1f}%"
-            if total_citas > 0
-            else "0%"
-        )
+        efec = f"{(asis / tot_c * 100):.1f}%" if tot_c > 0 else "0%"
 
-        m1.metric("Total Citas Agendadas", total_citas)
-        m2.metric("Citas Asistidas / Atendidas", asistidas)
-        m3.metric("Pendientes", pendientes)
-        m4.metric("Tasa de Asistencia", efectividad)
+        m1.metric("Total Citas", tot_c)
+        m2.metric("Asistidas", asis)
+        m3.metric("Pendientes", pend)
+        m4.metric("Tasa de Asistencia", efec)
 
-        st.markdown("---")
-        if df_rep.empty:
-          st.info("No hay registros de citas para el periodo seleccionado.")
-        else:
-          st.subheader(f"Detalle del Reporte ({periodo_rep})")
-          html_table = df_rep.to_html(
-              classes="custom-table", index=False, escape=False
+        if not df_rep.empty:
+          st.markdown(
+              df_rep.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
           )
-          st.markdown(html_table, unsafe_allow_html=True)
 
       elif opcion == "5. Reporte de Seguimiento Telefonistas":
-        st.header("⏱️ Reporte de Seguimiento y Actividad de Telefonistas")
-        st.caption(
-            "Monitorea el volumen de gestiones y llamadas realizadas por cada"
-            " telefonista para verificar su productividad."
-        )
-
-        col_rep_t1, col_rep_t2 = st.columns(2)
-        with col_rep_t1:
-          fecha_seguimiento = st.date_input(
-              "Fecha a Consultar:", value=datetime.today()
-          )
-        with col_rep_t2:
-          telefonista_filtro_rep = st.selectbox(
-              "Telefonista:", ["Todas"] + obtener_usuarios_por_rol("Telefonista")
-          )
-
-        f_seg_str = fecha_seguimiento.strftime("%Y-%m-%d")
-
-        query_seguimiento = f"""
-                SELECT usuario as 'Telefonista', accion as 'Acción Realizada', COUNT(*) as 'Total Gestiones'
-                FROM historial_llamadas
-                WHERE date(fecha_registro) = '{f_seg_str}'
-            """
-        if telefonista_filtro_rep != "Todas":
-          query_seguimiento += f" AND usuario = '{telefonista_filtro_rep}'"
-        query_seguimiento += " GROUP BY usuario, accion ORDER BY 'Total Gestiones' DESC"
-
-        df_seg = pd.read_sql_query(query_seguimiento, CONN)
-
-        query_total_acciones = f"""
-                SELECT usuario as 'Telefonista', COUNT(*) as 'Total General'
-                FROM historial_llamadas
-                WHERE date(fecha_registro) = '{f_seg_str}'
-            """
-        if telefonista_filtro_rep != "Todas":
-          query_total_acciones += f" AND usuario = '{telefonista_filtro_rep}'"
-        query_total_acciones += " GROUP BY usuario"
-
-        df_totales_tele = pd.read_sql_query(query_total_acciones, CONN)
-
-        st.markdown("---")
-        if df_totales_tele.empty:
-          st.info(
-              "No hay registros de llamadas o gestiones para la fecha"
-              f" seleccionada ({f_seg_str})."
-          )
-        else:
-          st.subheader(
-              f"📊 Resumen de Productividad por Telefonista ({f_seg_str})"
-          )
-          st.dataframe(df_totales_tele, use_container_width=True, hide_index=True)
-
-          st.markdown("---")
-          st.subheader("📋 Detalle Desglosado por Tipo de Acción")
-          html_table_seg = df_seg.to_html(
-              classes="custom-table", index=False, escape=False
-          )
-          st.markdown(html_table_seg, unsafe_allow_html=True)
-
-          st.markdown("---")
-          st.subheader("🔍 Bitácora Detallada de Movimientos del Día")
-          query_bitacora = f"""
-                    SELECT h.fecha_registro as 'Fecha/Hora', h.usuario as 'Telefonista', c.rfc as 'RFC', c.nombre || ' ' || c.apellido as 'Cliente', h.accion as 'Acción', h.detalle as 'Detalle'
-                    FROM historial_llamadas h
-                    JOIN clientes c ON h.rfc_cliente = c.rfc
-                    WHERE date(h.fecha_registro) = '{f_seg_str}'
-                """
-          if telefonista_filtro_rep != "Todas":
-            query_bitacora += f" AND h.usuario = '{telefonista_filtro_rep}'"
-          query_bitacora += " ORDER BY h.id DESC"
-
-          df_bitacora = pd.read_sql_query(query_bitacora, CONN)
-          if df_bitacora.empty:
-            st.info("No hay bitácora detallada disponible.")
-          else:
-            html_table_bit = df_bitacora.to_html(
-                classes="custom-table", index=False, escape=False
+        st.header("⏱️ Reporte de Seguimiento y Actividad")
+        f_seg = (
+            st.date_input(
+                "Fecha a Consultar:", value=obtener_ahora_mexico().date()
             )
-            st.markdown(html_table_bit, unsafe_allow_html=True)
+            .strftime("%Y-%m-%d")
+        )
+        df_tot = pd.read_sql(
+            """
+            SELECT usuario as "Telefonista", COUNT(*) as "Total General" 
+            FROM historial_llamadas WHERE fecha_registro LIKE %s GROUP BY usuario
+        """,
+            con=engine,
+            params=(f"{f_seg}%",),
+        )
+        if df_tot.empty:
+          st.info(f"No hay registros de llamadas para la fecha ({f_seg}).")
+        else:
+          st.dataframe(df_tot, use_container_width=True, hide_index=True)
 
       elif opcion == "6. Gestión de Usuarios y Roles":
-        st.header("👥 Panel de Administración de Usuarios y Fichas")
-        tab_crear, tab_editar = st.tabs(
-            ["➕ Crear Nuevo Usuario", "✏️ Editar / Restablecer Usuarios"]
+        st.header("👥 Panel de Administración de Usuarios")
+        tab_c, tab_e = st.tabs(
+            ["➕ Crear Nuevo Usuario", "✏️ Editar Usuarios"]
         )
-
-        with tab_crear:
-          st.subheader("Registrar Nuevo Usuario y Ficha Personal")
+        with tab_c:
           with st.form("form_crear_usuario", clear_on_submit=True):
-            col_u1, col_u2 = st.columns(2)
-            with col_u1:
-              nuevo_usr = st.text_input("Nombre de Usuario (Login) *")
-              nuevo_pwd = st.text_input("Contraseña *", type="password")
-              nuevo_rol = st.selectbox(
-                  "Rol del Sistema", ["Administrador", "Telefonista", "Asesor"]
+            cu1, cu2 = st.columns(2)
+            with cu1:
+              n_usr = st.text_input("Usuario *")
+              n_pwd = st.text_input("Contraseña *", type="password")
+              n_rol = st.selectbox(
+                  "Rol", ["Administrador", "Telefonista", "Asesor"]
               )
-            with col_u2:
-              nombre_per = st.text_input("Nombre(s) Personal")
-              apellido_per = st.text_input("Apellidos")
-              tel_per = st.text_input("Teléfono Personal")
-              dir_per = st.text_input("Dirección")
-
-            btn_guardar_usr = st.form_submit_button(
+            with cu2:
+              n_nom, n_ape = st.text_input("Nombre(s)"), st.text_input(
+                  "Apellidos"
+              )
+              n_tel, n_dir = st.text_input("Teléfono"), st.text_input(
+                  "Dirección"
+              )
+            if st.form_submit_button(
                 "💾 Crear Usuario", use_container_width=True
-            )
-            if btn_guardar_usr:
-              if not nuevo_usr.strip() or not nuevo_pwd.strip():
-                st.error("⚠️ Usuario y contraseña son obligatorios.")
+            ):
+              if not n_usr.strip() or not n_pwd.strip():
+                st.error("⚠️ Usuario y contraseña obligatorios.")
               else:
                 try:
-                  CURSOR.execute(
-                      """
-                                    INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                                """,
-                      (
-                          nuevo_usr.strip(),
-                          nuevo_pwd.strip(),
-                          nuevo_rol,
-                          nombre_per,
-                          apellido_per,
-                          tel_per,
-                          dir_per,
-                      ),
-                  )
-                  CONN.commit()
-                  st.success(
-                      f"✅ ¡Usuario '{nuevo_usr}' creado exitosamente como"
-                      f" {nuevo_rol} con su ficha personal!"
-                  )
-                except sqlite3.IntegrityError:
-                  st.error(
-                      "⚠️ El nombre de usuario ya existe. Elige otro por favor."
-                  )
-
-        with tab_editar:
-          st.subheader("Modificar Fichas, Roles y Contraseñas de Usuarios")
-          df_usuarios = pd.read_sql_query(
-              """
-                SELECT id, usuario, rol, nombre_completo, apellido, telefono, direccion 
-                FROM usuarios ORDER BY id ASC
-            """,
-              CONN,
+                  with engine.begin() as conn_sql:
+                    conn_sql.exec_driver_sql(
+                        """
+                            INSERT INTO usuarios (usuario, password, rol, nombre_completo, apellido, telefono, direccion) 
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            n_usr.strip(),
+                            n_pwd.strip(),
+                            n_rol,
+                            n_nom,
+                            n_ape,
+                            n_tel,
+                            n_dir,
+                        ),
+                    )
+                  st.success(f"✅ ¡Usuario '{n_usr}' creado con éxito!")
+                except Exception:
+                  st.error("⚠️ El usuario ya existe.")
+        with tab_e:
+          df_u = pd.read_sql(
+              "SELECT id, usuario, rol, nombre_completo, apellido FROM usuarios",
+              con=engine,
           )
-
-          if df_usuarios.empty:
-            st.info("No hay usuarios registrados.")
-          else:
-            for _, u_row in df_usuarios.iterrows():
-              u_id = u_row["id"]
-              u_name = u_row["usuario"]
-              u_rol = u_row["rol"]
-              u_nomb = u_row["nombre_completo"] or ""
-              u_apel = u_row["apellido"] or ""
-              u_tele = u_row["telefono"] or ""
-              u_dir = u_row["direccion"] or ""
-
-              with st.expander(
-                  f"👤 {u_name} | {u_nomb} {u_apel} (Rol: {u_rol})"
+          for _, ur in df_u.iterrows():
+            with st.expander(
+                f"👤 {ur['usuario']} ({ur['rol']}) - {ur['nombre_completo']}"
+            ):
+              if ur["usuario"] != "admin" and st.button(
+                  "🗑️ Eliminar Usuario", key=f"del_u_{ur['id']}"
               ):
-                with st.form(f"form_edit_usr_{u_id}"):
-                  col_e1, col_e2 = st.columns(2)
-                  with col_e1:
-                    edit_nombre = st.text_input(
-                        "Nombre de Usuario (Login)",
-                        value=u_name,
-                        key=f"name_{u_id}",
-                    )
-                    roles_opciones = ["Administrador", "Telefonista", "Asesor"]
-                    idx_rol = (
-                        roles_opciones.index(u_rol)
-                        if u_rol in roles_opciones
-                        else 1
-                    )
-                    edit_rol = st.selectbox(
-                        "Rol",
-                        roles_opciones,
-                        index=idx_rol,
-                        key=f"rol_{u_id}",
-                    )
-                    edit_pwd = st.text_input(
-                        "Nueva Contraseña (en blanco si no cambia)",
-                        type="password",
-                        key=f"pwd_{u_id}",
-                    )
-                  with col_e2:
-                    edit_nomb = st.text_input(
-                        "Nombre(s)", value=u_nomb, key=f"nomb_{u_id}"
-                    )
-                    edit_apel = st.text_input(
-                        "Apellidos", value=u_apel, key=f"apel_{u_id}"
-                    )
-                    edit_tele = st.text_input(
-                        "Teléfono", value=u_tele, key=f"tele_{u_id}"
-                    )
-                    edit_dir = st.text_input(
-                        "Dirección", value=u_dir, key=f"dir_{u_id}"
-                    )
-
-                  col_btn_mod, col_btn_del = st.columns(2)
-                  with col_btn_mod:
-                    submitted_mod = st.form_submit_button(
-                        "💾 Guardar Ficha y Cambios", use_container_width=True
-                    )
-                  with col_btn_del:
-                    submitted_del = st.form_submit_button(
-                        "🗑️ Eliminar Usuario", use_container_width=True
-                    )
-
-                  if submitted_mod:
-                    if not edit_nombre.strip():
-                      st.error(
-                          "El nombre de usuario login no puede estar vacío."
-                      )
-                    else:
-                      if edit_pwd.strip():
-                        CURSOR.execute(
-                            """
-                                            UPDATE usuarios 
-                                            SET usuario = ?, password = ?, rol = ?, nombre_completo = ?, apellido = ?, telefono = ?, direccion = ? 
-                                            WHERE id = ?
-                                        """,
-                            (
-                                edit_nombre.strip(),
-                                edit_pwd.strip(),
-                                edit_rol,
-                                edit_nomb,
-                                edit_apel,
-                                edit_tele,
-                                edit_dir,
-                                u_id,
-                            ),
-                        )
-                      else:
-                        CURSOR.execute(
-                            """
-                                            UPDATE usuarios 
-                                            SET usuario = ?, rol = ?, nombre_completo = ?, apellido = ?, telefono = ?, direccion = ? 
-                                            WHERE id = ?
-                                        """,
-                            (
-                                edit_nombre.strip(),
-                                edit_rol,
-                                edit_nomb,
-                                edit_apel,
-                                edit_tele,
-                                edit_dir,
-                                u_id,
-                            ),
-                        )
-                      CONN.commit()
-                      st.success(
-                          f"✅ ¡Ficha y datos de '{edit_nombre}' actualizados"
-                          " con éxito!"
-                      )
-                      st.rerun()
-
-                  if submitted_del:
-                    if u_name == "admin":
-                      st.error(
-                          "⚠️ No se puede eliminar al usuario administrador"
-                          " principal."
-                      )
-                    else:
-                      CURSOR.execute(
-                          "DELETE FROM usuarios WHERE id = ?", (u_id,)
-                      )
-                      CONN.commit()
-                      st.warning(
-                          f"🗑️ Usuario '{u_name}' eliminado correctamente."
-                      )
-                      st.rerun()
+                with engine.begin() as conn_sql:
+                  conn_sql.exec_driver_sql(
+                      "DELETE FROM usuarios WHERE id = %s", (ur["id"],)
+                  )
+                st.rerun()
 
     elif rol == "Telefonista":
       if opcion == "Mis Prospectos y Gestión":
         st.header(f"📞 Mis Prospectos Asignados ({usuario})")
-        col_busq, col_vacio, col_btn_crear = st.columns([1, 1.8, 1.2])
-        with col_busq:
-          busqueda_tele = st.text_input("🔎 Buscar en mis prospectos:")
-        with col_btn_crear:
-          st.markdown(
-              "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
-          )
-          if st.button("➕ Crear Prospecto Nuevo", use_container_width=True):
-            modal_crear_prospecto(usuario, rol)
-
-        query_tele = (
-            "SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza,"
-            " dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1,"
-            f" estado_tel2, estado_tel3 FROM clientes WHERE telefonista_asignada"
-            f" = '{usuario}'"
-        )
+        busqueda_tele = st.text_input("🔎 Buscar:")
+        q_t = """
+            SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1, estado_tel2, estado_tel3 
+            FROM clientes WHERE telefonista_asignada = %s
+        """
+        params_t = [usuario]
         if busqueda_tele:
-          query_tele += (
-              " AND (rfc LIKE '%"
-              + busqueda_tele
-              + "%' OR nombre LIKE '%"
-              + busqueda_tele
-              + "%' OR apellido LIKE '%"
-              + busqueda_tele
-              + "%' OR tel1 LIKE '%"
-              + busqueda_tele
-              + "%')"
+          q_t += (
+              " AND (rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s OR"
+              " poliza ILIKE %s)"
           )
-        df_prospectos = pd.read_sql_query(query_tele, CONN)
-        if df_prospectos.empty:
-          st.info("No tienes prospectos asignados actualmente.")
-        else:
-          renderizar_bloque_con_tabla(df_prospectos, key_suffix="gestion_tele")
+          pt = f"%{busqueda_tele}%"
+          params_t.extend([pt, pt, pt, pt])
 
-      elif opcion == "Mis Citas Agendadas":
-        st.header(f"📅 Agenda Diaria y Actividad ({usuario})")
-        col_filtro_t1, col_filtro_t2 = st.columns(2)
-        with col_filtro_t1:
-          tipo_agenda_sel = st.selectbox(
-              "Ver por tipo:",
-              [
-                  "Citas Agendadas",
-                  "Posible Asistencia",
-                  "Recados",
-                  "Mensajes de Texto",
-                  "No existe",
-                  "No le interesa",
-                  "No contesta",
-                  "Todo el Historial",
-              ],
-          )
-        with col_filtro_t2:
-          fecha_agenda_sel = st.date_input(
-              "Filtrar por Fecha:", value=datetime.today()
-          )
-        fecha_str_sel = fecha_agenda_sel.strftime("%Y-%m-%d")
-
-        if tipo_agenda_sel in ["Citas Agendadas", "Posible Asistencia"]:
-          query_agenda = f"""
-                    SELECT fecha as 'Fecha', hora as 'Hora', cliente as 'Cliente', estado as 'Estado', notas as 'Notas'
-                    FROM citas WHERE agente = '{usuario}' AND fecha = '{fecha_str_sel}' ORDER BY hora ASC
-                """
-          df_agenda = pd.read_sql_query(query_agenda, CONN)
-          titulo_tabla = f"{tipo_agenda_sel} para el día {fecha_str_sel}"
-        else:
-          accion_map = {
-              "Recados": "Recado",
-              "Mensajes de Texto": "Mensaje de texto",
-              "No existe": "No existe",
-              "No le interesa": "No le interesa",
-              "No contesta": "No contesta",
-          }
-          if tipo_agenda_sel == "Todo el Historial":
-            query_agenda = f"""
-                        SELECT h.fecha_registro as 'Fecha/Hora', c.nombre || ' ' || c.apellido as 'Cliente', h.accion as 'Acción', h.detalle as 'Detalle'
-                        FROM historial_llamadas h
-                        JOIN clientes c ON h.rfc_cliente = c.rfc
-                        WHERE h.usuario = '{usuario}' AND date(h.fecha_registro) = '{fecha_str_sel}'
-                        ORDER BY h.id DESC
-                    """
-          else:
-            acc_val = accion_map[tipo_agenda_sel]
-            query_agenda = f"""
-                        SELECT h.fecha_registro as 'Fecha/Hora', c.nombre || ' ' || c.apellido as 'Cliente', h.accion as 'Acción', h.detalle as 'Detalle'
-                        FROM historial_llamadas h
-                        JOIN clientes c ON h.rfc_cliente = c.rfc
-                        WHERE h.usuario = '{usuario}' AND h.accion = '{acc_val}' AND date(h.fecha_registro) = '{fecha_str_sel}'
-                        ORDER BY h.id DESC
-                    """
-          df_agenda = pd.read_sql_query(query_agenda, CONN)
-          titulo_tabla = f"Registros de {tipo_agenda_sel} para el día {fecha_str_sel}"
-
-        st.markdown(f"### {titulo_tabla}")
-        if df_agenda.empty:
-          st.info(f"No hay registros de {tipo_agenda_sel} para esta fecha.")
-        else:
-          html_table = df_agenda.to_html(
-              classes="custom-table", index=False, escape=False
-          )
-          st.markdown(html_table, unsafe_allow_html=True)
-
-    else:
-      if opcion == "Mis Prospectos Asignados":
-        st.header(f"📞 Mis Prospectos Asignados ({usuario})")
-        col_busq_a, col_vacio_a, col_btn_crear_a = st.columns([1, 1.8, 1.2])
-        with col_busq_a:
-          busqueda_asesor_p = st.text_input("🔎 Buscar en mis prospectos:")
-        with col_btn_crear_a:
-          st.markdown(
-              "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
-          )
-          if st.button("➕ Crear Prospecto Nuevo", use_container_width=True):
-            modal_crear_prospecto(usuario, rol)
-
-        query_asesor_prosp = (
-            "SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza,"
-            " dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1,"
-            f" estado_tel2, estado_tel3 FROM clientes WHERE telefonista_asignada"
-            f" = '{usuario}'"
-        )
-        if busqueda_asesor_p:
-          query_asesor_prosp += (
-              " AND (rfc LIKE '%"
-              + busqueda_asesor_p
-              + "%' OR nombre LIKE '%"
-              + busqueda_asesor_p
-              + "%' OR apellido LIKE '%"
-              + busqueda_asesor_p
-              + "%' OR tel1 LIKE '%"
-              + busqueda_asesor_p
-              + "%')"
-          )
-        df_prosp_asesor = pd.read_sql_query(query_asesor_prosp, CONN)
-        if df_prosp_asesor.empty:
-          st.info("No tienes prospectos asignados actualmente.")
+        df_p = pd.read_sql(q_t, con=engine, params=params_t)
+        if df_p.empty:
+          st.info("No se encontraron prospectos.")
         else:
           renderizar_bloque_con_tabla(
-              df_prosp_asesor, key_suffix="gestion_asesor"
+              df_p, key_suffix="gestion_tele", ocultar_tels=True
+          )
+      elif opcion == "Mis Citas Agendadas":
+        st.header(f"📅 Agenda Diaria ({usuario})")
+        f_sel = st.date_input(
+            "Fecha:", value=obtener_ahora_mexico().date()
+        ).strftime("%Y-%m-%d")
+        df_ag = pd.read_sql(
+            """
+            SELECT fecha as "Fecha", hora as "Hora", cliente as "Cliente", estado as "Estado", notas as "Notas" 
+            FROM citas WHERE agente = %s AND fecha = %s ORDER BY hora ASC
+        """,
+            con=engine,
+            params=(usuario, f_sel),
+        )
+        if df_ag.empty:
+          st.info("No hay citas para esta fecha.")
+        else:
+          st.markdown(
+              df_ag.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
           )
 
+    else:  # Asesor
+      if opcion == "Mis Prospectos Asignados":
+        st.header(f"📞 Mis Prospectos Asignados ({usuario})")
+        busq_a = st.text_input("🔎 Buscar:")
+        q_a = """
+            SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1, estado_tel2, estado_tel3 
+            FROM clientes WHERE telefonista_asignada = %s
+        """
+        params_a = [usuario]
+        if busq_a:
+          q_a += " AND (rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s)"
+          pa = f"%{busq_a}%"
+          params_a.extend([pa, pa, pa])
+
+        df_pa = pd.read_sql(q_a, con=engine, params=params_a)
+        if df_pa.empty:
+          st.info("No se encontraron prospectos.")
+        else:
+          renderizar_bloque_con_tabla(
+              df_pa, key_suffix="gestion_asesor", ocultar_tels=True
+          )
       elif opcion == "Bolsa de Citas del Día (Asesores)":
         st.header(f"💼 Bolsa de Citas del Día ({usuario})")
-        col_b_asesor, col_btn_nuevo_asesor = st.columns([3, 1])
-        with col_b_asesor:
-          pass
-        with col_btn_nuevo_asesor:
+        f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+        df_b = pd.read_sql(
+            """
+            SELECT id, fecha as "Fecha", hora as "Hora", cliente as "Cliente", telefono as "Teléfono", estado as "Estado", notas as "Notas" 
+            FROM citas WHERE fecha = %s AND (asesor = %s OR asesor = 'Sin Asignar') ORDER BY hora ASC
+        """,
+            con=engine,
+            params=(f_hoy, usuario),
+        )
+        if df_b.empty:
+          st.info("No hay citas en la bolsa para hoy.")
+        else:
           st.markdown(
-              "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
+              df_b.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
           )
-          if st.button("➕ Crear Prospecto Nuevo", use_container_width=True):
-            modal_crear_prospecto(usuario, rol)
-
-        fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
-        query_bolsa = f"""
-                SELECT id, fecha as 'Fecha', hora as 'Hora', cliente as 'Cliente', telefono as 'Teléfono', estado as 'Estado', notas as 'Notas'
-                FROM citas WHERE fecha = '{fecha_hoy_str}' AND (asesor = '{usuario}' OR asesor = 'Sin Asignar')
-                ORDER BY hora ASC
-            """
-        df_bolsa = pd.read_sql_query(query_bolsa, CONN)
-        if df_bolsa.empty:
-          st.info("No hay citas en la bolsa para el día de hoy.")
-        else:
-          html_table = df_bolsa.to_html(
-              classes="custom-table", index=False, escape=False
-          )
-          st.markdown(html_table, unsafe_allow_html=True)
-
       elif opcion == "Mis Registros de Hoy":
-        st.header(f"📝 Mis Registros y Actividad de Hoy ({usuario})")
-        fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
-        query_reg_hoy = f"""
-                SELECT h.fecha_registro as 'Fecha/Hora', c.nombre || ' ' || c.apellido as 'Cliente', h.accion as 'Acción', h.detalle as 'Detalle'
-                FROM historial_llamadas h
-                JOIN clientes c ON h.rfc_cliente = c.rfc
-                WHERE h.usuario = '{usuario}' AND date(h.fecha_registro) = '{fecha_hoy_str}'
-                ORDER BY h.id DESC
+        st.header(f"📝 Mis Registros de Hoy ({usuario})")
+        f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+        df_rh = pd.read_sql(
             """
-        df_reg_hoy = pd.read_sql_query(query_reg_hoy, CONN)
-        if df_reg_hoy.empty:
-          st.info("No tienes registros en el historial para el día de hoy.")
+            SELECT h.fecha_registro as "Fecha/Hora", c.nombre || ' ' || c.apellido as "Cliente", h.accion as "Acción", h.detalle as "Detalle" 
+            FROM historial_llamadas h JOIN clientes c ON h.rfc_cliente = c.rfc 
+            WHERE h.usuario = %s AND h.fecha_registro LIKE %s ORDER BY h.id DESC
+        """,
+            con=engine,
+            params=(usuario, f"{f_hoy}%"),
+        )
+        if df_rh.empty:
+          st.info("No tienes registros hoy.")
         else:
-          html_table = df_reg_hoy.to_html(
-              classes="custom-table", index=False, escape=False
+          st.markdown(
+              df_rh.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
           )
-          st.markdown(html_table, unsafe_allow_html=True)
-
       elif opcion == "📊 Reportes de Citas y Asistencias":
         st.header("📊 Reportes de Asesor")
-        periodo_asesor = st.selectbox(
-            "Periodo:", ["Diario", "Semanal", "Mensual"]
+        f_rep_a = st.date_input(
+            "Fecha Base:", value=obtener_ahora_mexico().date()
+        ).strftime("%Y-%m-%d")
+        df_ra = pd.read_sql(
+            "SELECT * FROM citas WHERE agente = %s AND fecha = %s",
+            con=engine,
+            params=(usuario, f_rep_a),
         )
-        fecha_asesor_rep = st.date_input(
-            "Fecha Base:", value=datetime.today(), key="f_asesor_rep"
-        )
-        fecha_rep_str = fecha_asesor_rep.strftime("%Y-%m-%d")
-        query_rep_asesor = f"""
-                SELECT * FROM citas WHERE agente = '{usuario}' AND fecha = '{fecha_rep_str}'
-            """
-        df_rep_asesor = pd.read_sql_query(query_rep_asesor, CONN)
-
         m1, m2 = st.columns(2)
-        m1.metric("Mis Citas del Día", len(df_rep_asesor))
-        asistidas_a = (
+        m1.metric("Mis Citas del Día", len(df_ra))
+        asis_a = (
             len(
-                df_rep_asesor[
-                    df_rep_asesor["estado"].str.contains(
+                df_ra[
+                    df_ra["estado"].str.contains(
                         "Asistida", case=False, na=False
                     )
                 ]
             )
-            if not df_rep_asesor.empty
+            if not df_ra.empty
             else 0
         )
-        m2.metric("Citas Asistidas", asistidas_a)
-
-        if not df_rep_asesor.empty:
-          html_table = df_rep_asesor.to_html(
-              classes="custom-table", index=False, escape=False
+        m2.metric("Citas Asistidas", asis_a)
+        if not df_ra.empty:
+          st.markdown(
+              df_ra.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
           )
-          st.markdown(html_table, unsafe_allow_html=True)
-        else:
-          st.info("No hay citas registradas para este filtro.")
