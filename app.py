@@ -1994,7 +1994,7 @@ else:
       elif opcion == "Control de Tiempo (Comida/Baño)":
         st.header("⏱️ Control de Tiempos y Salidas")
         f_hoy_str = obtener_ahora_mexico().strftime("%Y-%m-%d")
-        LIMITE_MINUTOS_COMIDA = 1
+        LIMITE_MINUTOS_COMIDA = 30  # Límite real de 30 minutos
 
         with engine.connect() as conn_sql:
           reg_comida_activo = conn_sql.exec_driver_sql(
@@ -2024,7 +2024,7 @@ else:
         col_c1, col_c2 = st.columns(2)
 
         with col_c1:
-          st.subheader("🍽️ Tiempo de Comida (1 Minuto Pruebas)")
+          st.subheader("🍽️ Tiempo de Comida (30 Minutos)")
           if reg_comida_activo:
             st.warning(
                 f"⏳ Comida iniciada a las: **{reg_comida_activo[1]}**"
