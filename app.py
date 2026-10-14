@@ -45,6 +45,20 @@ ID_SERIAL = (
 st.markdown(
     """
 <style>
+    /* OCULTAR BARRA SUPERIOR DE STREAMLIT (Share, estrella, github, etc.) */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+    footer {
+        visibility: hidden;
+    }
+    [data-testid="stStatusWidget"] {
+        visibility: hidden;
+    }
+    .stAppDeployButton {
+        display: none !important;
+    }
+
     h2, h3 {
         color: #002B49 !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
