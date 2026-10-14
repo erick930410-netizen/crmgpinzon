@@ -786,6 +786,22 @@ for k, v in [
   if k not in st.session_state:
     st.session_state[k] = v
 
+# --- OCULTAR BARRA DE HERRAMIENTAS Y DESCARGA CSV A NO-ADMINISTRADORES ---
+rol_actual_sesion = st.session_state.get("rol", None)
+
+if rol_actual_sesion != "Administrador":
+  st.markdown(
+      """
+    <style>
+        /* Oculta la barra flotante de herramientas y descarga CSV de las tablas para no administradores */
+        [data-testid="stElementToolbar"] {
+            display: none !important;
+        }
+    </style>
+    """,
+      unsafe_allow_html=True,
+  )
+
 if st.session_state["usuario_logueado"] is None:
   st.markdown(
       """
@@ -1994,7 +2010,7 @@ else:
       elif opcion == "Control de Tiempo (Comida/Baño)":
         st.header("⏱️ Control de Tiempos y Salidas")
         f_hoy_str = obtener_ahora_mexico().strftime("%Y-%m-%d")
-        LIMITE_MINUTOS_COMIDA = 30  # Límite real de 30 minutos
+        LIMITE_MINUTOS_COMIDA = 30
 
         with engine.connect() as conn_sql:
           reg_comida_activo = conn_sql.exec_driver_sql(
