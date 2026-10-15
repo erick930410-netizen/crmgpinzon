@@ -83,14 +83,14 @@ st.markdown(
         border: none !important;
     }
     div[data-testid="stPopoverBody"] {
-        width: 220px !important;
-        max-width: 220px !important;
-        padding: 8px !important;
+        width: 280px !important;
+        max-width: 280px !important;
+        padding: 12px !important;
     }
     div[data-testid="stPopoverBody"] button {
-        font-size: 11px !important;
-        padding: 4px 8px !important;
-        min-height: 28px !important;
+        font-size: 12px !important;
+        padding: 6px 10px !important;
+        min-height: 32px !important;
     }
     .custom-table {
         width: 100%;
@@ -1554,7 +1554,21 @@ else:
           st.markdown(
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
-          activar_filtros = st.toggle("🔍 Mostrar Filtros Avanzados")
+          
+          # --- VENTANA FLOTANTE (POPOVER) DE FILTROS AVANZADOS REALES ---
+          with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
+            st.markdown("##### 📅 Filtrar por Rango de Fechas")
+            usar_filtro_fechas = st.checkbox("Habilitar filtro de fechas de asignación")
+            f_inicio = st.date_input("Desde:", value=obtener_ahora_mexico().date())
+            f_fin = st.date_input("Hasta:", value=obtener_ahora_mexico().date())
+            
+            st.markdown("---")
+            filtro_estatus_avanzado = st.selectbox(
+                "Estatus específico:",
+                ["Todos", "Disponible", "Asignado", "En Seguimiento", "Cita Agendada", "No Interesado"]
+            )
+            st.markdown("*(Los resultados se actualizan al instante)*")
+
         with col_crear:
           st.markdown(
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
@@ -1579,6 +1593,19 @@ else:
             )
             patron = f"%{busqueda}%"
             params_query.extend([patron, patron, patron, patron])
+
+        # Aplicar condiciones del popover de filtros avanzados de fechas y estatus
+        if 'usar_filtro_fechas' in locals() and usar_filtro_fechas:
+          condiciones.append(
+              "ult_fecha_asignacion BETWEEN ? AND ?" if ES_SQLITE else "ult_fecha_asignacion BETWEEN %s AND %s"
+          )
+          params_query.extend([str(f_inicio), str(f_fin)])
+
+        if 'filtro_estatus_avanzado' in locals() and filtro_estatus_avanzado != "Todos":
+          condiciones.append(
+              "estatus = ?" if ES_SQLITE else "estatus = %s"
+          )
+          params_query.append(filtro_estatus_avanzado)
 
         query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3 FROM clientes"
         if condiciones:
