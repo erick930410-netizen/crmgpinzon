@@ -622,7 +622,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
       max(1, (tot_filt - 1) // cant_por_pagina + 1) if tot_filt > 0 else 1
   )
 
-  # SIEMPRE mostrar la barra de paginación y el botón de seleccionar 100 si hay registros
   if tot_filt > 0:
     col_p1, col_p2 = st.columns([1, 1])
     with col_p1:
@@ -1136,28 +1135,35 @@ else:
             )
 
       with col2:
-        st.markdown("#### 📅 Cita Generada Activa")
-        with st.container(key=f"cont_cita_{rfc_actual}"):
-          with engine.connect() as conn_sql:
-            cita_reciente = conn_sql.exec_driver_sql(
-                f"""
-                SELECT id, fecha, hora, estado, agente, notas FROM citas 
-                WHERE rfc_cliente = {PH} ORDER BY id DESC LIMIT 1
-            """,
-                (rfc_actual,),
-            ).fetchone()
-
-          if cita_reciente:
-            c_id, c_fecha, c_hora, c_estado, c_agente, c_notas = cita_reciente
-            st.markdown(
-                f"📌 **Fecha:** {c_fecha} | **Hora:** {c_hora} | **Agente:**"
-                f" {c_agente}"
+        st.markdown("#### 📅 Agendar Cita (Registrar Cita)")
+        with st.form(key=f"form_agendar_cita_{rfc_actual}"):
+          f_cita = st.date_input(
+              "Fecha de Cita", value=obtener_ahora_mexico().date()
+          )
+          h_cita = st.time_input("Hora de Cita")
+          tel_contacto_cita = st.text_input(
+              "Teléfono de Contacto para la Cita", value=str(row[3] or "")
+          )
+          notas_cita = st.text_area("Notas / Referencia de Cita")
+          
+          if st.form_submit_button("📅 Guardar y Agendar Cita"):
+            guardar_cita(
+                rfc_actual,
+                nombre_completo_id,
+                tel_contacto_cita,
+                usuario,
+                str(f_cita),
+                str(h_cita),
+                "Pendiente",
+                notas_cita,
             )
-            st.markdown(f"**Estado Cita:** `{c_estado}`")
-            if c_notas:
-              st.caption(f"📝 Notas: {c_notas}")
-          else:
-            st.write("No hay citas generadas recientemente para este prospecto.")
+            with engine.begin() as conn_sql:
+              conn_sql.exec_driver_sql(
+                  f"UPDATE clientes SET estatus = 'Cita Agendada' WHERE rfc = {PH}",
+                  (rfc_actual,),
+              )
+            st.success("✅ ¡Cita agendada con éxito y estatus actualizado!")
+            st.rerun()
 
         st.markdown("---")
         st.markdown("#### 📋 Fechas y Seguimiento")
