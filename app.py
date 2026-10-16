@@ -1243,18 +1243,7 @@ else:
           st.caption(f"📌 Seleccionados: **{sel_count}**")
           
           st.markdown("---")
-          st.markdown("##### 📂 Panel de Multi-Filtros Acumulativos")
-          
-          if st.button("🔄 Restablecer / Borrar Filtros", use_container_width=True, key="btn_reset_banco"):
-            st.session_state.pop("filtro_tel_banco", None)
-            st.session_state.pop("filtro_sector_banco", None)
-            st.session_state.pop("filtro_estatus_banco", None)
-            st.session_state["filtros_aplicados_banco"] = False
-            st.rerun()
-
-          if st.button("🔍 Aplicar Filtros", use_container_width=True, key="btn_aplicar_f_banco"):
-            st.session_state["filtros_aplicados_banco"] = True
-            st.rerun()
+          st.markdown("##### 📂 Panel de Multi-Filtros")
 
           opciones_est_tel = ["Todos", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo", "No Contesta / Buzón"]
           f_est_tel = st.selectbox("📞 Estatus de Teléfonos:", opciones_est_tel, key="filtro_tel_banco")
@@ -1272,18 +1261,17 @@ else:
         conds_banco = []
         params_banco = []
 
-        if st.session_state.get("filtros_aplicados_banco", False):
-          if 'filtro_tel_banco' in st.session_state and st.session_state["filtro_tel_banco"] != "Todos":
-            conds_banco.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
-            params_banco.extend([st.session_state["filtro_tel_banco"]]*3)
+        if 'filtro_tel_banco' in st.session_state and st.session_state["filtro_tel_banco"] != "Todos":
+          conds_banco.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
+          params_banco.extend([st.session_state["filtro_tel_banco"]]*3)
 
-          if 'filtro_sector_banco' in st.session_state and st.session_state["filtro_sector_banco"] != "Todos":
-            conds_banco.append("sector = ?" if ES_SQLITE else "sector = %s")
-            params_banco.append(st.session_state["filtro_sector_banco"])
+        if 'filtro_sector_banco' in st.session_state and st.session_state["filtro_sector_banco"] != "Todos":
+          conds_banco.append("sector = ?" if ES_SQLITE else "sector = %s")
+          params_banco.append(st.session_state["filtro_sector_banco"])
 
-          if 'filtro_estatus_banco' in st.session_state and st.session_state["filtro_estatus_banco"] != "Todos":
-            conds_banco.append("estatus = ?" if ES_SQLITE else "estatus = %s")
-            params_banco.append(st.session_state["filtro_estatus_banco"])
+        if 'filtro_estatus_banco' in st.session_state and st.session_state["filtro_estatus_banco"] != "Todos":
+          conds_banco.append("estatus = ?" if ES_SQLITE else "estatus = %s")
+          params_banco.append(st.session_state["filtro_estatus_banco"])
 
         if conds_banco:
           query_banco += " WHERE " + " AND ".join(conds_banco)
@@ -1291,7 +1279,7 @@ else:
         df_banco = pd.read_sql(query_banco, con=engine, params=params_banco if params_banco else None)
 
         if df_banco.empty:
-          st.warning("⚠️ Registro no encontrado o no hay clientes que coincidan con los filtros seleccionados.")
+          st.warning("⚠️ No se encontraron registros con los filtros seleccionados.")
         else:
           renderizar_bloque_con_tabla(
               df_banco, key_suffix="banco", ocultar_tels=False
@@ -1351,21 +1339,10 @@ else:
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
           
-          # --- MULTI-FILTROS COMPLETOS CON BOTÓN DE APLICAR ---
+          # --- MULTI-FILTROS COMPLETOS (FILTRADO AUTOMÁTICO AL CAMBIAR) ---
           with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
             st.markdown("##### 📂 Opciones de Filtrado Avanzado")
-            
-            if st.button("🔄 Restablecer Filtros", use_container_width=True, key="btn_reset_gestion"):
-              for k_f in ["f_asig_hab", "f_mov_hab", "f_sector_gestion", "f_tele_gestion", "f_estatus_gestion", "f_tel_estado_gestion"]:
-                st.session_state.pop(k_f, None)
-              st.session_state["filtros_aplicados_gestion"] = False
-              st.rerun()
 
-            if st.button("🔍 Aplicar Filtros", use_container_width=True, key="btn_aplicar_f_gestion"):
-              st.session_state["filtros_aplicados_gestion"] = True
-              st.rerun()
-
-            st.markdown("---")
             st.markdown("##### 📅 Fecha Específica de Asignación")
             filtrar_fa = st.checkbox("Filtrar por esta fecha de asignación", key="f_asig_hab")
             fa_especifica = st.date_input("Fecha de Asignación:", value=obtener_ahora_mexico().date(), key="fa_esp")
@@ -1418,33 +1395,32 @@ else:
             patron = f"%{busqueda}%"
             params_query.extend([patron, patron, patron, patron])
 
-        # CONSULTA: SI SE DIÓ CLIC EN "APLICAR FILTROS", SE APLICAN. SI NO, SE MUESTRA TODA LA BASE DE DATOS.
+        # CONSULTA: APLICA FILTROS AUTOMÁTICAMENTE SEGÚN LO SELECCIONADO EN EL POPOVER
         query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus FROM clientes"
 
-        if st.session_state.get("filtros_aplicados_gestion", False):
-          if st.session_state.get("f_asig_hab", False):
-            condiciones.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
-            params_query.append(str(fa_especifica))
+        if st.session_state.get("f_asig_hab", False):
+          condiciones.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+          params_query.append(str(fa_especifica))
 
-          if st.session_state.get("f_mov_hab", False):
-            condiciones.append("fecha_ult_mov = ?" if ES_SQLITE else "fecha_ult_mov = %s")
-            params_query.append(str(fm_especifica))
+        if st.session_state.get("f_mov_hab", False):
+          condiciones.append("fecha_ult_mov = ?" if ES_SQLITE else "fecha_ult_mov = %s")
+          params_query.append(str(fm_especifica))
 
-          if st.session_state.get("f_sector_gestion", "Todos") != "Todos":
-            condiciones.append("sector = ?" if ES_SQLITE else "sector = %s")
-            params_query.append(st.session_state["f_sector_gestion"])
+        if st.session_state.get("f_sector_gestion", "Todos") != "Todos":
+          condiciones.append("sector = ?" if ES_SQLITE else "sector = %s")
+          params_query.append(st.session_state["f_sector_gestion"])
 
-          if st.session_state.get("f_tele_gestion", "Todos") != "Todos":
-            condiciones.append("telefonista_asignada = ?" if ES_SQLITE else "telefonista_asignada = %s")
-            params_query.append(st.session_state["f_tele_gestion"])
+        if st.session_state.get("f_tele_gestion", "Todos") != "Todos":
+          condiciones.append("telefonista_asignada = ?" if ES_SQLITE else "telefonista_asignada = %s")
+          params_query.append(st.session_state["f_tele_gestion"])
 
-          if st.session_state.get("f_estatus_gestion", "Todos") != "Todos":
-            condiciones.append("estatus = ?" if ES_SQLITE else "estatus = %s")
-            params_query.append(st.session_state["f_estatus_gestion"])
+        if st.session_state.get("f_estatus_gestion", "Todos") != "Todos":
+          condiciones.append("estatus = ?" if ES_SQLITE else "estatus = %s")
+          params_query.append(st.session_state["f_estatus_gestion"])
 
-          if st.session_state.get("f_tel_estado_gestion", "Todos") != "Todos":
-            condiciones.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
-            params_query.extend([st.session_state["f_tel_estado_gestion"]]*3)
+        if st.session_state.get("f_tel_estado_gestion", "Todos") != "Todos":
+          condiciones.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
+          params_query.extend([st.session_state["f_tel_estado_gestion"]]*3)
 
         if condiciones:
           query += " WHERE " + " AND ".join(condiciones)
