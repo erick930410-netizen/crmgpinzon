@@ -1276,7 +1276,7 @@ else:
         if conds_banco:
           query_banco += " WHERE " + " AND ".join(conds_banco)
 
-        df_banco = pd.read_sql(query_banco, con=engine, params=params_banco if params_banco else None)
+        df_banco = pd.read_sql(query_banco, con=engine, params=tuple(params_banco) if params_banco else None)
 
         if df_banco.empty:
           st.warning("⚠️ No se encontraron registros con los filtros seleccionados.")
@@ -1381,6 +1381,7 @@ else:
 
         condiciones = []
         params_query = []
+        
         if busqueda:
           if ES_SQLITE:
             condiciones.append(
@@ -1426,8 +1427,9 @@ else:
           query += " WHERE " + " AND ".join(condiciones)
         query += " ORDER BY fecha_creacion DESC LIMIT 1000"
 
+        # Convertir params_query a tupla limpia para evitar ArgumentError en SQLAlchemy
         df_resultados = pd.read_sql(
-            query, con=engine, params=params_query if params_query else None
+            query, con=engine, params=tuple(params_query) if params_query else None
         )
 
         if df_resultados.empty:
