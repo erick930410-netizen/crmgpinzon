@@ -82,7 +82,6 @@ st.markdown(
         border: none !important;
     }
     
-    /* ANCHO AMPLIADO PARA EL POPOVER DE FILTROS */
     div[data-testid="stPopoverBody"] {
         width: 420px !important;
         max-width: 420px !important;
@@ -188,7 +187,7 @@ def parsear_a_date(val):
   return obtener_ahora_mexico().date()
 
 
-# --- INICIALIZACIÓN DE TABLAS ---
+# --- INICIALIZACIÓN Y MIGRACIÓN AUTOMÁTICA DE TABLAS ---
 with engine.begin() as conn_sql:
   conn_sql.exec_driver_sql(f"""
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -214,6 +213,14 @@ with engine.begin() as conn_sql:
         fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
+  # SEGURIDAD: Agregar columna telefono_reciente si la tabla ya existía sin ella
+  try:
+    conn_sql.exec_driver_sql(
+        "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS telefono_reciente TEXT DEFAULT ''"
+    )
+  except Exception:
+    pass
 
   conn_sql.exec_driver_sql(f"""
     CREATE TABLE IF NOT EXISTS historial_llamadas (
@@ -1212,11 +1219,10 @@ else:
       elif opcion == "2. Ver Banco de Prospectos":
         st.header("📊 Banco General de Prospectos")
         
-        # --- BARRA DE OPCIONES Y MULTI-FILTROS AVANZADOS AMPLIADOS ---
         with st.popover("⚙️ Opciones de Tabla y Multi-Filtros Avanzados", use_container_width=False):
           st.markdown("##### ⚙️ Acciones Rápidas")
           if st.button("✅ Seleccionar 100 de esta página", use_container_width=True):
-            pass  # El control de selección se maneja desde la tabla
+            pass
           
           if st.button("❌ Desmarcar Todos", use_container_width=True):
             st.session_state["sel_rfcs_banco"] = []
@@ -1234,11 +1240,9 @@ else:
             st.session_state.pop("filtro_estatus_banco", None)
             st.rerun()
 
-          # Filtros acumulativos interactivos dentro del popover ancho
           opciones_est_tel = ["Todos", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo", "No Contesta / Buzón"]
           f_est_tel = st.selectbox("📞 Estatus de Teléfonos:", opciones_est_tel, key="filtro_tel_banco")
 
-          # Obtener lista única de dependencias / sectores para el filtro
           with engine.connect() as conn_s:
             res_sec = conn_s.exec_driver_sql("SELECT DISTINCT sector FROM clientes WHERE sector IS NOT NULL AND sector != ''").fetchall()
           lista_sectores = ["Todos"] + [r[0] for r in res_sec if r[0]]
@@ -1247,7 +1251,6 @@ else:
           opciones_estatus_gen = ["Todos", "Disponible", "Asignado", "En Seguimiento", "Cita Agendada", "No Interesado"]
           f_est_gen = st.selectbox("📌 Estatus General:", opciones_estatus_gen, key="filtro_estatus_banco")
 
-        # Construcción de la consulta SQL aplicando los filtros acumulativos seleccionados
         query_banco = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, edad, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3 FROM clientes"
         
         conds_banco = []
