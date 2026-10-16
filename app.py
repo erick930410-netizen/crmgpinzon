@@ -1351,12 +1351,12 @@ else:
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
           
-          # --- MULTI-FILTROS COMPLETOS CON BOTÓN DE APLICAR (SIN CHECKBOX DE FECHA) ---
+          # --- MULTI-FILTROS COMPLETOS CON BOTÓN DE APLICAR ---
           with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
             st.markdown("##### 📂 Opciones de Filtrado Avanzado")
             
             if st.button("🔄 Restablecer Filtros", use_container_width=True, key="btn_reset_gestion"):
-              for k_f in ["f_asig_hab", "f_mov_hab", "f_sector_gestion", "f_tele_gestion", "f_estatus_gestion", "f_tel_estado_gestion"]:
+              for k_f in ["f_sector_gestion", "f_tele_gestion", "f_estatus_gestion", "f_tel_estado_gestion"]:
                 st.session_state.pop(k_f, None)
               st.session_state["filtros_aplicados_gestion"] = False
               st.rerun()
@@ -1416,46 +1416,44 @@ else:
             patron = f"%{busqueda}%"
             params_query.extend([patron, patron, patron, patron])
 
-        # RESTRICCIÓN ESTRICTA: SI NO SE HA DADO CLIC EN "APLICAR FILTROS" O NO HAY BÚSQUEDA, LA TABLA SALE VACÍA
-        if not st.session_state.get("filtros_aplicados_gestion", False) and not busqueda:
-          df_resultados = pd.DataFrame()
-        else:
-          if st.session_state.get("filtros_aplicados_gestion", False):
-            if fa_especifica is not None:
-              condiciones.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
-              params_query.append(str(fa_especifica))
+        # CONSTRUCCIÓN DE CONSULTA SEGÚN LOS FILTROS APLICADOS
+        query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus FROM clientes"
 
-            if fm_especifica is not None:
-              condiciones.append("fecha_ult_mov = ?" if ES_SQLITE else "fecha_ult_mov = %s")
-              params_query.append(str(fm_especifica))
+        if st.session_state.get("filtros_aplicados_gestion", False):
+          if fa_especifica is not None and str(fa_especifica) != "":
+            condiciones.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+            params_query.append(str(fa_especifica))
 
-            if st.session_state.get("f_sector_gestion", "Todos") != "Todos":
-              condiciones.append("sector = ?" if ES_SQLITE else "sector = %s")
-              params_query.append(st.session_state["f_sector_gestion"])
+          if fm_especifica is not None and str(fm_especifica) != "":
+            condiciones.append("fecha_ult_mov = ?" if ES_SQLITE else "fecha_ult_mov = %s")
+            params_query.append(str(fm_especifica))
 
-            if st.session_state.get("f_tele_gestion", "Todos") != "Todos":
-              condiciones.append("telefonista_asignada = ?" if ES_SQLITE else "telefonista_asignada = %s")
-              params_query.append(st.session_state["f_tele_gestion"])
+          if st.session_state.get("f_sector_gestion", "Todos") != "Todos":
+            condiciones.append("sector = ?" if ES_SQLITE else "sector = %s")
+            params_query.append(st.session_state["f_sector_gestion"])
 
-            if st.session_state.get("f_estatus_gestion", "Todos") != "Todos":
-              condiciones.append("estatus = ?" if ES_SQLITE else "estatus = %s")
-              params_query.append(st.session_state["f_estatus_gestion"])
+          if st.session_state.get("f_tele_gestion", "Todos") != "Todos":
+            condiciones.append("telefonista_asignada = ?" if ES_SQLITE else "telefonista_asignada = %s")
+            params_query.append(st.session_state["f_tele_gestion"])
 
-            if st.session_state.get("f_tel_estado_gestion", "Todos") != "Todos":
-              condiciones.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
-              params_query.extend([st.session_state["f_tel_estado_gestion"]]*3)
+          if st.session_state.get("f_estatus_gestion", "Todos") != "Todos":
+            condiciones.append("estatus = ?" if ES_SQLITE else "estatus = %s")
+            params_query.append(st.session_state["f_estatus_gestion"])
 
-          query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus FROM clientes"
-          if condiciones:
-            query += " WHERE " + " AND ".join(condiciones)
-          query += " ORDER BY fecha_creacion DESC LIMIT 1000"
+          if st.session_state.get("f_tel_estado_gestion", "Todos") != "Todos":
+            condiciones.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
+            params_query.extend([st.session_state["f_tel_estado_gestion"]]*3)
 
-          df_resultados = pd.read_sql(
-              query, con=engine, params=params_query if params_query else None
-          )
+        if condiciones:
+          query += " WHERE " + " AND ".join(condiciones)
+        query += " ORDER BY fecha_creacion DESC LIMIT 1000"
+
+        df_resultados = pd.read_sql(
+            query, con=engine, params=params_query if params_query else None
+        )
 
         if df_resultados.empty:
-          st.info("ℹ️ Usa el menú de **Filtros Avanzados y Fechas** o el buscador superior para consultar prospectos específicos.")
+          st.info("ℹ️ No se encontraron prospectos con los filtros seleccionados.")
         else:
           renderizar_bloque_con_tabla(
               df_resultados, key_suffix="gestion_admin", ocultar_tels=False
