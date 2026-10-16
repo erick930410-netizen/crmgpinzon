@@ -609,6 +609,11 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
 
 def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   df = df_entrada.copy()
+
+  # OCULTAR TELÉFONOS EN LA TABLA PRINCIPAL SI ES REQUERIDO
+  if ocultar_tels:
+    cols_tel = [c for c in ["tel1", "tel2", "tel3", "telefono", "telefono_reciente"] if c in df.columns]
+    df.drop(columns=cols_tel, inplace=True, errors="ignore")
   
   cant_por_pagina = 100
   total_filas = len(df)
@@ -863,16 +868,42 @@ else:
         unsafe_allow_html=True,
     )
   with col_nav3:
-    if st.button("🚪 Cerrar Sesión", use_container_width=True):
-      for k in [
-          "usuario_logueado",
-          "rol",
-          "prospecto_editar_rfc",
-          "lista_rfcs_navegacion",
-          "seccion_activa",
-      ]:
-        st.session_state[k] = None if k != "lista_rfcs_navegacion" else []
-      st.rerun()
+    c_sub1, c_sub2 = st.columns([1, 1])
+    with c_sub1:
+      # --- CONTROL RÁPIDO Y CÓMODO DE TIEMPOS PARA TELEFONISTAS (POPOVER SUPERIOR) ---
+      if rol == "Telefonista":
+        with st.popover("⏱️ Pausa / Descanso", use_container_width=True):
+          st.caption("Marcar Salida/Entrada")
+          if st.button("🍽️ Comida", use_container_width=True, key="btn_quick_comida"):
+            f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+            h_ahora = obtener_ahora_mexico().strftime("%H:%M:%S")
+            with engine.begin() as conn_sql:
+              conn_sql.exec_driver_sql(
+                  f"INSERT INTO asistencia_telefonistas (usuario, tipo_registro, fecha, hora_inicio, estado) VALUES ({PH}, 'Comida', {PH}, {PH}, 'Activo')",
+                  (usuario, f_hoy, h_ahora)
+              )
+            st.toast("✅ Salida a comer registrada", icon="🍽️")
+          
+          if st.button("🚽 Baño", use_container_width=True, key="btn_quick_bano"):
+            f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+            h_ahora = obtener_ahora_mexico().strftime("%H:%M:%S")
+            with engine.begin() as conn_sql:
+              conn_sql.exec_driver_sql(
+                  f"INSERT INTO asistencia_telefonistas (usuario, tipo_registro, fecha, hora_inicio, estado) VALUES ({PH}, 'Baño', {PH}, {PH}, 'Activo')",
+                  (usuario, f_hoy, h_ahora)
+              )
+            st.toast("✅ Salida al baño registrada", icon="🚽")
+    with c_sub2:
+      if st.button("🚪 Cerrar Sesión", use_container_width=True):
+        for k in [
+            "usuario_logueado",
+            "rol",
+            "prospecto_editar_rfc",
+            "lista_rfcs_navegacion",
+            "seccion_activa",
+        ]:
+          st.session_state[k] = None if k != "lista_rfcs_navegacion" else []
+        st.rerun()
 
   st.markdown("---")
 
@@ -1135,34 +1166,68 @@ else:
             )
 
       with col2:
-        st.markdown("#### 📅 Agendar Cita (Registrar Cita)")
-        with st.form(key=f"form_agendar_cita_{rfc_actual}"):
-          f_cita = st.date_input(
-              "Fecha de Cita", value=obtener_ahora_mexico().date()
-          )
-          h_cita = st.time_input("Hora de Cita")
-          tel_contacto_cita = st.text_input(
-              "Teléfono de Contacto para la Cita", value=str(row[3] or "")
-          )
-          notas_cita = st.text_area("Notas / Referencia de Cita")
-          
-          if st.form_submit_button("📅 Guardar y Agendar Cita"):
-            guardar_cita(
-                rfc_actual,
-                nombre_completo_id,
-                tel_contacto_cita,
-                usuario,
-                str(f_cita),
-                str(h_cita),
-                "Pendiente",
-                notas_cita,
+        # --- MENÚ DE CLASIFICACIÓN DE LLAMADA Y DESBLOQUEO DINÁMICO DE CITA ---
+        st.markdown("#### 📌 Gestión de Llamada y Resultado")
+        
+        opciones_resultado_llamada = [
+            "En Seguimiento / Por Marcar",
+            "Número Equivocado / Malo",
+            "No Contesta / Buzón",
+            "No Interesado / Imposible Cita",
+            "📅 Cita Agendada",
+            "📅 Posible Cita (Por Confirmar)"
+        ]
+        
+        estatus_actual_bd = row[15] if row[15] in opciones_resultado_llamada else "En Seguimiento / Por Marcar"
+        idx_res = opciones_resultado_llamada.index(estatus_actual_bd) if estatus_actual_bd in opciones_resultado_llamada else 0
+        
+        sel_resultado = st.selectbox(
+            "Seleccionar Resultado de la Llamada:",
+            opciones_resultado_llamada,
+            index=idx_res,
+            key=f"sel_res_llamada_{rfc_actual}"
+        )
+
+        # SI ES CITA AGENDADA O POSIBLE CITA, MUESTRA EL FORMULARIO DE FECHA Y HORA
+        if sel_resultado in ["📅 Cita Agendada", "📅 Posible Cita (Por Confirmar)"]:
+          st.success("✅ Excelente. Ingresa los datos de la cita:")
+          with st.form(key=f"form_agendar_cita_{rfc_actual}"):
+            f_cita = st.date_input(
+                "Fecha de Cita", value=obtener_ahora_mexico().date()
             )
+            h_cita = st.time_input("Hora de Cita")
+            tel_contacto_cita = st.text_input(
+                "Teléfono de Contacto para la Cita", value=str(row[3] or "")
+            )
+            notas_cita = st.text_area("Notas / Referencia de Cita")
+            
+            if st.form_submit_button("💾 Guardar y Confirmar Cita"):
+              guardar_cita(
+                  rfc_actual,
+                  nombre_completo_id,
+                  tel_contacto_cita,
+                  usuario,
+                  str(f_cita),
+                  str(h_cita),
+                  "Pendiente",
+                  notas_cita,
+              )
+              with engine.begin() as conn_sql:
+                conn_sql.exec_driver_sql(
+                    f"UPDATE clientes SET estatus = {PH} WHERE rfc = {PH}",
+                    (sel_resultado, rfc_actual),
+                )
+              st.success(f"✅ ¡Registro guardado como '{sel_resultado}' y cita agendada con éxito!")
+              st.rerun()
+        else:
+          st.info(f"💡 Resultado seleccionado: **{sel_resultado}**")
+          if st.button("💾 Guardar Estatus de Llamada", key=f"btn_save_est_{rfc_actual}"):
             with engine.begin() as conn_sql:
               conn_sql.exec_driver_sql(
-                  f"UPDATE clientes SET estatus = 'Cita Agendada' WHERE rfc = {PH}",
-                  (rfc_actual,),
+                  f"UPDATE clientes SET estatus = {PH} WHERE rfc = {PH}",
+                  (sel_resultado, rfc_actual),
               )
-            st.success("✅ ¡Cita agendada con éxito y estatus actualizado!")
+            st.success(f"✅ Estatus de cliente actualizado a '{sel_resultado}'.")
             st.rerun()
 
         st.markdown("---")
@@ -1350,7 +1415,6 @@ else:
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
           
-          # --- MULTI-FILTROS COMPLETOS (FILTRADO AUTOMÁTICO AL CAMBIAR) ---
           with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
             st.markdown("##### 📂 Opciones de Filtrado Avanzado")
 
@@ -1410,7 +1474,6 @@ else:
             patron = f"%{busqueda}%"
             params_query.extend([patron, patron, patron, patron])
 
-        # CONSULTA: APLICA FILTROS AUTOMÁTICAMENTE SEGÚN LO SELECCIONADO EN EL POPOVER
         query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus FROM clientes"
 
         if st.session_state.get("f_usuario_admin_sel", "Todos") != "Todos":
@@ -1441,7 +1504,6 @@ else:
           query += " WHERE " + " AND ".join(condiciones)
         query += " ORDER BY fecha_creacion DESC LIMIT 1000"
 
-        # Convertir params_query a tupla limpia para evitar ArgumentError en SQLAlchemy
         df_resultados = pd.read_sql(
             query, con=engine, params=tuple(params_query) if params_query else None
         )
@@ -1556,45 +1618,74 @@ else:
                 unsafe_allow_html=True,
             )
 
+        with tab_rep2:
+          st.subheader("📞 Llamadas y Registros de Telefonistas")
+          df_llamadas_rep = pd.read_sql(
+              f"""
+                SELECT usuario as "Telefonista", accion as "Acción", detalle as "Detalle", fecha_registro as "Fecha y Hora"
+                FROM historial_llamadas 
+                WHERE date(fecha_registro) = {PH}
+                ORDER BY id DESC
+              """,
+              con=engine,
+              params=(f_rep_str,),
+          )
+          if df_llamadas_rep.empty:
+            st.info("No hay llamadas registradas para esta fecha.")
+          else:
+            st.dataframe(df_llamadas_rep, use_container_width=True)
+
+        with tab_rep3:
+          st.subheader("⏱️ Auditoría de Tiempos de Conexión")
+          df_auditoria = pd.read_sql(
+              f"""
+                SELECT usuario as "Usuario", tipo_registro as "Tipo", fecha as "Fecha", 
+                       hora_inicio as "Inicio", hora_fin as "Fin", duracion_minutos as "Minutos", estado as "Estado"
+                FROM asistencia_telefonistas 
+                WHERE fecha = {PH}
+              """,
+              con=engine,
+              params=(f_rep_str,),
+          )
+          if df_auditoria.empty:
+            st.info("No hay registros de tiempo para esta fecha.")
+          else:
+            st.dataframe(df_auditoria, use_container_width=True)
+
+        with tab_rep4:
+          st.subheader("🍽️ / 🚽 Reporte de Comida y Baño")
+          df_comida = pd.read_sql(
+              f"""
+                SELECT usuario as "Usuario", tipo_registro as "Motivo", hora_inicio as "Salida", hora_fin as "Regreso", duracion_minutos as "Duración (Min)"
+                FROM asistencia_telefonistas 
+                WHERE fecha = {PH} AND tipo_registro IN ('Comida', 'Baño')
+              """,
+              con=engine,
+              params=(f_rep_str,),
+          )
+          if df_comida.empty:
+            st.info("No hay registros de comida o baño para esta fecha.")
+          else:
+            st.dataframe(df_comida, use_container_width=True)
+
       elif opcion == "5. Gestión de Usuarios y Roles":
         st.header("👥 Panel de Administración de Usuarios")
+        df_usuarios = pd.read_sql("SELECT id, usuario, rol, nombre_completo, apellido, telefono, direccion FROM usuarios", con=engine)
+        st.dataframe(df_usuarios, use_container_width=True)
 
-    elif rol in ["Telefonista", "Asesor"]:
-      titulo_vista = "📞 Todos los Prospectos de la Base" if rol == "Asesor" else f"📞 Mis Prospectos Asignados ({usuario})"
-      st.header(titulo_vista)
-      
-      col_b_tel, col_f_tel = st.columns([3, 1])
-      with col_b_tel:
-        busq_a = st.text_input("🔎 Buscar por RFC, Nombre o Apellido:")
-      with col_f_tel:
-        st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-        with st.popover("📅 Filtrar por Fecha", use_container_width=True):
-          st.markdown("##### 📅 Fecha de Asignación")
-          filtrar_fa_tel = st.checkbox("Filtrar por fecha de asignación", key="f_asig_hab_tele")
-          fa_tele_esp = st.date_input("Seleccionar Fecha:", value=obtener_ahora_mexico().date(), key="fa_tele_esp")
+    elif rol == "Telefonista":
+      if opcion == "Mis Prospectos y Gestión":
+        st.header(f"📞 Mis Prospectos Asignados ({usuario})")
+        col_b_tel, col_f_tel = st.columns([3, 1])
+        with col_b_tel:
+          busq_a = st.text_input("🔎 Buscar por RFC, Nombre o Apellido:")
+        with col_f_tel:
+          st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+          with st.popover("📅 Filtrar por Fecha", use_container_width=True):
+            st.markdown("##### 📅 Fecha de Asignación")
+            filtrar_fa_tel = st.checkbox("Filtrar por fecha de asignación", key="f_asig_hab_tele")
+            fa_tele_esp = st.date_input("Seleccionar Fecha:", value=obtener_ahora_mexico().date(), key="fa_tele_esp")
 
-      if rol == "Asesor":
-        q_a = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, estatus FROM clientes"
-        params_a = []
-        conds_a = []
-        
-        if filtrar_fa_tel:
-          conds_a.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
-          params_a.append(str(fa_tele_esp))
-          
-        if busq_a:
-          if ES_SQLITE:
-            conds_a.append("(rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ?)")
-          else:
-            conds_a.append("(rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s)")
-          pa = f"%{busq_a}%"
-          params_a.extend([pa, pa, pa])
-          
-        if conds_a:
-          q_a += " WHERE " + " AND ".join(conds_a)
-          
-        params_a = tuple(params_a) if params_a else None
-      else:
         q_a = f"SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, estatus FROM clientes WHERE telefonista_asignada = {PH}"
         params_a = [usuario]
         conds_a = []
@@ -1614,10 +1705,117 @@ else:
         if conds_a:
           q_a += " AND " + " AND ".join(conds_a)
 
-        params_a = tuple(params_a)
+        df_pa = pd.read_sql(q_a, con=engine, params=tuple(params_a))
+        if df_pa.empty:
+          st.info("No se encontraron prospectos con los filtros seleccionados.")
+        else:
+          # OCULTAR TELÉFONOS EN LA TABLA DE VISTA DE TELEFONISTAS
+          renderizar_bloque_con_tabla(df_pa, key_suffix="gestion_telefonista", ocultar_tels=True)
 
-      df_pa = pd.read_sql(q_a, con=engine, params=params_a)
-      if df_pa.empty:
-        st.info("No se encontraron prospectos con los filtros seleccionados.")
-      else:
-        renderizar_bloque_con_tabla(df_pa, key_suffix="gestion_asesor", ocultar_tels=False)
+      elif opcion == "Mis Citas Agendadas":
+        st.header(f"📅 Citas Agendadas por {usuario}")
+        df_citas_tele = pd.read_sql(
+            f"SELECT cliente, telefono, fecha, hora, estado, notas FROM citas WHERE agente = {PH} ORDER BY fecha DESC",
+            con=engine,
+            params=(usuario,)
+        )
+        if df_citas_tele.empty:
+          st.info("No tienes citas agendadas.")
+        else:
+          st.dataframe(df_citas_tele, use_container_width=True)
+
+      elif opcion == "Control de Tiempo (Comida/Baño)":
+        st.header("⏱️ Control de Tiempos y Descansos")
+        st.info("Utiliza esta sección o el botón rápido superior para registrar tus salidas a comer o al baño.")
+        
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+          if st.button("🍽️ Registrar Salida a Comer", use_container_width=True):
+            f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+            h_ahora = obtener_ahora_mexico().strftime("%H:%M:%S")
+            with engine.begin() as conn_sql:
+              conn_sql.exec_driver_sql(
+                  f"INSERT INTO asistencia_telefonistas (usuario, tipo_registro, fecha, hora_inicio, estado) VALUES ({PH}, 'Comida', {PH}, {PH}, 'Activo')",
+                  (usuario, f_hoy, h_ahora)
+              )
+            st.success("✅ ¡Salida a comer registrada!")
+            st.rerun()
+        with col_t2:
+          if st.button("🚽 Registrar Salida al Baño", use_container_width=True):
+            f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+            h_ahora = obtener_ahora_mexico().strftime("%H:%M:%S")
+            with engine.begin() as conn_sql:
+              conn_sql.exec_driver_sql(
+                  f"INSERT INTO asistencia_telefonistas (usuario, tipo_registro, fecha, hora_inicio, estado) VALUES ({PH}, 'Baño', {PH}, {PH}, 'Activo')",
+                  (usuario, f_hoy, h_ahora)
+              )
+            st.success("✅ ¡Salida al baño registrada!")
+            st.rerun()
+
+    elif rol == "Asesor":
+      if opcion == "Ver Todos los Prospectos (Asesor)":
+        st.header("📞 Todos los Prospectos de la Base")
+        col_b_tel, col_f_tel = st.columns([3, 1])
+        with col_b_tel:
+          busq_a = st.text_input("🔎 Buscar por RFC, Nombre o Apellido:")
+        with col_f_tel:
+          st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+          with st.popover("📅 Filtrar por Fecha", use_container_width=True):
+            st.markdown("##### 📅 Fecha de Asignación")
+            filtrar_fa_tel = st.checkbox("Filtrar por fecha de asignación", key="f_asig_hab_tele")
+            fa_tele_esp = st.date_input("Seleccionar Fecha:", value=obtener_ahora_mexico().date(), key="fa_tele_esp")
+
+        q_a = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, estatus FROM clientes"
+        params_a = []
+        conds_a = []
+        
+        if filtrar_fa_tel:
+          conds_a.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+          params_a.append(str(fa_tele_esp))
+          
+        if busq_a:
+          if ES_SQLITE:
+            conds_a.append("(rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ?)")
+          else:
+            conds_a.append("(rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s)")
+          pa = f"%{busq_a}%"
+          params_a.extend([pa, pa, pa])
+          
+        if conds_a:
+          q_a += " WHERE " + " AND ".join(conds_a)
+          
+        df_pa = pd.read_sql(q_a, con=engine, params=tuple(params_a) if params_a else None)
+        if df_pa.empty:
+          st.info("No se encontraron prospectos con los filtros seleccionados.")
+        else:
+          renderizar_bloque_con_tabla(df_pa, key_suffix="gestion_asesor", ocultar_tels=False)
+
+      elif opcion == "Bolsa de Citas del Día (Asesores)":
+        st.header("📅 Bolsa de Citas del Día")
+        f_hoy_str = obtener_ahora_mexico().strftime("%Y-%m-%d")
+        df_citas_asesor = pd.read_sql(
+            f"SELECT id, cliente, telefono, fecha, hora, estado, notas FROM citas WHERE fecha = {PH}",
+            con=engine,
+            params=(f_hoy_str,)
+        )
+        if df_citas_asesor.empty:
+          st.info("No hay citas registradas para el día de hoy.")
+        else:
+          st.dataframe(df_citas_asesor, use_container_width=True)
+
+      elif opcion == "Mis Registros de Hoy":
+        st.header("📋 Mis Registros de Hoy")
+        st.info("Aquí puedes ver los movimientos y actividades registradas hoy.")
+
+      elif opcion == "📊 Reportes de Citas y Asistencias":
+        st.header("📊 Reportes de Citas y Asistencias")
+        f_rep_as = st.date_input("Seleccionar Fecha de Reporte:", value=obtener_ahora_mexico().date())
+        df_rep_as = pd.read_sql(
+            f"SELECT cliente, telefono, fecha, hora, estado, agente FROM citas WHERE fecha = {PH}",
+            con=engine,
+            params=(str(f_rep_as),)
+        )
+        if df_rep_as.empty:
+          st.info("No hay registros de citas para la fecha seleccionada.")
+        else:
+          st.dataframe(df_rep_as, use_container_width=True)
