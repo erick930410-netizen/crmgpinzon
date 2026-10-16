@@ -622,17 +622,22 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
       max(1, (tot_filt - 1) // cant_por_pagina + 1) if tot_filt > 0 else 1
   )
 
-  if tot_filt > cant_por_pagina:
+  # SIEMPRE mostrar la barra de paginación y el botón de seleccionar 100 si hay registros
+  if tot_filt > 0:
     col_p1, col_p2 = st.columns([1, 1])
     with col_p1:
-      p_act = st.selectbox(
-          f"📄 Páginas (Bloques de 100 de {tot_filt} coincidentes):",
-          range(1, tot_pags + 1),
-          key=f"pag_num_{key_suffix}",
-      )
+      if tot_filt > cant_por_pagina:
+        p_act = st.selectbox(
+            f"📄 Páginas (Bloques de 100 de {tot_filt} coincidentes):",
+            range(1, tot_pags + 1),
+            key=f"pag_num_{key_suffix}",
+        )
+      else:
+        st.caption(f"📌 Mostrando todos los {tot_filt} registros coincidentes.")
+        p_act = 1
     with col_p2:
       st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-      if st.button("✅ Seleccionar los 100 de esta página", key=f"btn_sel100_{key_suffix}"):
+      if st.button(f"✅ Seleccionar los {min(tot_filt, cant_por_pagina)} de esta vista", key=f"btn_sel100_{key_suffix}"):
         pagina_rfcs = df.iloc[(p_act - 1) * cant_por_pagina : p_act * cant_por_pagina]["rfc"].tolist()
         prev = st.session_state.get(f"sel_rfcs_{key_suffix}", [])
         st.session_state[f"sel_rfcs_{key_suffix}"] = list(set(prev + pagina_rfcs))
