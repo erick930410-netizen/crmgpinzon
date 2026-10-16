@@ -451,7 +451,8 @@ def cargar_base_general(df_cargado):
                 INSERT INTO clientes (
                     rfc, nombre, apellido, tel1, tel2, tel3, telefono, sector, 
                     poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
-                    observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
+                    observaciones_tel, observaciones_asesor, telefonista_asignada, estatus,
+                    estado_tel1, estado_tel2, estado_tel3
                 )
                 VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
                 ON CONFLICT (rfc) DO UPDATE SET
@@ -610,7 +611,6 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
 def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   df = df_entrada.copy()
 
-  # OCULTAR TELÉFONOS EN LA TABLA PRINCIPAL SI ES REQUERIDO
   if ocultar_tels:
     cols_tel = [c for c in ["tel1", "tel2", "tel3", "telefono", "telefono_reciente"] if c in df.columns]
     df.drop(columns=cols_tel, inplace=True, errors="ignore")
@@ -870,7 +870,6 @@ else:
   with col_nav3:
     c_sub1, c_sub2 = st.columns([1, 1])
     with c_sub1:
-      # --- CONTROL RÁPIDO Y CÓMODO DE TIEMPOS PARA TELEFONISTAS (POPOVER SUPERIOR) ---
       if rol == "Telefonista":
         with st.popover("⏱️ Pausa / Descanso", use_container_width=True):
           st.caption("Marcar Salida/Entrada")
@@ -1166,7 +1165,6 @@ else:
             )
 
       with col2:
-        # --- MENÚ DE CLASIFICACIÓN DE LLAMADA Y DESBLOQUEO DINÁMICO DE CITA ---
         st.markdown("#### 📌 Gestión de Llamada y Resultado")
         
         opciones_resultado_llamada = [
@@ -1188,7 +1186,6 @@ else:
             key=f"sel_res_llamada_{rfc_actual}"
         )
 
-        # SI ES CITA AGENDADA O POSIBLE CITA, MUESTRA EL FORMULARIO DE FECHA Y HORA
         if sel_resultado in ["📅 Cita Agendada", "📅 Posible Cita (Por Confirmar)"]:
           st.success("✅ Excelente. Ingresa los datos de la cita:")
           with st.form(key=f"form_agendar_cita_{rfc_actual}"):
@@ -1709,7 +1706,6 @@ else:
         if df_pa.empty:
           st.info("No se encontraron prospectos con los filtros seleccionados.")
         else:
-          # OCULTAR TELÉFONOS EN LA TABLA DE VISTA DE TELEFONISTAS
           renderizar_bloque_con_tabla(df_pa, key_suffix="gestion_telefonista", ocultar_tels=True)
 
       elif opcion == "Mis Citas Agendadas":
