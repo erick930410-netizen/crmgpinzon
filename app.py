@@ -173,7 +173,7 @@ def limpiar_fecha_str(val):
   if pd.isna(val) or val is None:
     return ""
   s = str(val).strip()
-  if not s or s.lower() == "nan" or s == "0":
+  if not s or s.lower() == "nan" == "0":
     return ""
   return s.split(" ")[0] if " " in s else s
 
@@ -1549,31 +1549,61 @@ else:
       titulo_vista = "📞 Todos los Prospectos de la Base" if rol == "Asesor" else f"📞 Mis Prospectos Asignados ({usuario})"
       st.header(titulo_vista)
       
-      busq_a = st.text_input("🔎 Buscar por RFC, Nombre o Apellido:")
-      
+      col_b_tel, col_f_tel = st.columns([3, 1])
+      with col_b_tel:
+        busq_a = st.text_input("🔎 Buscar por RFC, Nombre o Apellido:")
+      with col_f_tel:
+        st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+        with st.popover("📅 Filtrar por Fecha", use_container_width=True):
+          st.markdown("##### 📅 Fecha de Asignación")
+          filtrar_fa_tel = st.checkbox("Filtrar por fecha de asignación", key="f_asig_hab_tele")
+          fa_tele_esp = st.date_input("Seleccionar Fecha:", value=obtener_ahora_mexico().date(), key="fa_tele_esp")
+
       if rol == "Asesor":
         q_a = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, estatus FROM clientes"
-        params_a = ()
+        params_a = []
+        conds_a = []
+        
+        if filtrar_fa_tel:
+          conds_a.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+          params_a.append(str(fa_tele_esp))
+          
         if busq_a:
           if ES_SQLITE:
-            q_a += " WHERE rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ?"
+            conds_a.append("(rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ?)")
           else:
-            q_a += " WHERE rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s"
+            conds_a.append("(rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s)")
           pa = f"%{busq_a}%"
-          params_a = (pa, pa, pa)
+          params_a.extend([pa, pa, pa])
+          
+        if conds_a:
+          q_a += " WHERE " + " AND ".join(conds_a)
+          
+        params_a = tuple(params_a) if params_a else None
       else:
         q_a = f"SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, estatus FROM clientes WHERE telefonista_asignada = {PH}"
-        params_a = (usuario,)
+        params_a = [usuario]
+        conds_a = []
+
+        if filtrar_fa_tel:
+          conds_a.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+          params_a.append(str(fa_tele_esp))
+
         if busq_a:
           if ES_SQLITE:
-            q_a += " AND (rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ?)"
+            conds_a.append("(rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ?)")
           else:
-            q_a += " AND (rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s)"
+            conds_a.append("(rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s)")
           pa = f"%{busq_a}%"
-          params_a = (usuario, pa, pa, pa)
+          params_a.extend([pa, pa, pa])
 
-      df_pa = pd.read_sql(q_a, con=engine, params=params_a if params_a else None)
+        if conds_a:
+          q_a += " AND " + " AND ".join(conds_a)
+
+        params_a = tuple(params_a)
+
+      df_pa = pd.read_sql(q_a, con=engine, params=params_a)
       if df_pa.empty:
-        st.info("No se encontraron prospectos.")
+        st.info("No se encontraron prospectos con los filtros seleccionados.")
       else:
         renderizar_bloque_con_tabla(df_pa, key_suffix="gestion_asesor", ocultar_tels=False)
