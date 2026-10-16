@@ -1351,7 +1351,7 @@ else:
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
           
-          # --- MULTI-FILTROS COMPLETOS CON BOTÓN DE APLICAR Y FECHAS ESPECÍFICAS ---
+          # --- MULTI-FILTROS COMPLETOS CON BOTÓN DE APLICAR (SIN CHECKBOX DE FECHA) ---
           with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
             st.markdown("##### 📂 Opciones de Filtrado Avanzado")
             
@@ -1367,13 +1367,11 @@ else:
 
             st.markdown("---")
             st.markdown("##### 📅 Fecha Específica de Asignación")
-            u_asig = st.checkbox("Filtrar por Fecha de Asignación Específica", key="f_asig_hab")
-            fa_especifica = st.date_input("Fecha de Asignación:", value=obtener_ahora_mexico().date(), key="fa_esp")
+            fa_especifica = st.date_input("Fecha de Asignación (Opcional):", value=None, key="fa_esp")
 
             st.markdown("---")
             st.markdown("##### 🔄 Fecha Específica de Último Movimiento")
-            u_mov = st.checkbox("Filtrar por Fecha de Último Movimiento Específica", key="f_mov_hab")
-            fm_especifica = st.date_input("Fecha de Último Movimiento:", value=obtener_ahora_mexico().date(), key="fm_esp")
+            fm_especifica = st.date_input("Fecha de Último Movimiento (Opcional):", value=None, key="fm_esp")
 
             st.markdown("---")
             st.markdown("##### 🏢 Mercado / Dependencia")
@@ -1423,11 +1421,11 @@ else:
           df_resultados = pd.DataFrame()
         else:
           if st.session_state.get("filtros_aplicados_gestion", False):
-            if st.session_state.get("f_asig_hab", False):
+            if fa_especifica is not None:
               condiciones.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
               params_query.append(str(fa_especifica))
 
-            if st.session_state.get("f_mov_hab", False):
+            if fm_especifica is not None:
               condiciones.append("fecha_ult_mov = ?" if ES_SQLITE else "fecha_ult_mov = %s")
               params_query.append(str(fm_especifica))
 
