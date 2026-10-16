@@ -453,7 +453,7 @@ def cargar_base_general(df_cargado):
                     poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
                     observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
                 )
-                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin Asignar', 'Disponible', 'Sin marcar', 'Sin marcar', 'Sin marcar')
+                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
                 ON CONFLICT (rfc) DO UPDATE SET
                     nombre = EXCLUDED.nombre,
                     apellido = EXCLUDED.apellido,
@@ -570,7 +570,8 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
                 INSERT INTO clientes (
                     rfc, nombre, apellido, tel1, tel2, tel3, telefono, sector, 
                     poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
-                    observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
+                    observaciones_tel, observaciones_asesor, telefonista_asignada, estatus,
+                    estado_tel1, estado_tel2, estado_tel3
                 )
                 VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
                 ON CONFLICT (rfc) DO UPDATE SET
@@ -1251,6 +1252,10 @@ else:
             st.session_state["filtros_aplicados_banco"] = False
             st.rerun()
 
+          if st.button("🔍 Aplicar Filtros", use_container_width=True, key="btn_aplicar_f_banco"):
+            st.session_state["filtros_aplicados_banco"] = True
+            st.rerun()
+
           opciones_est_tel = ["Todos", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo", "No Contesta / Buzón"]
           f_est_tel = st.selectbox("📞 Estatus de Teléfonos:", opciones_est_tel, key="filtro_tel_banco")
 
@@ -1261,11 +1266,6 @@ else:
 
           opciones_estatus_gen = ["Todos", "Disponible", "Asignado", "En Seguimiento", "Cita Agendada", "No Interesado"]
           f_est_gen = st.selectbox("📌 Estatus General:", opciones_estatus_gen, key="filtro_estatus_banco")
-
-          st.markdown("---")
-          if st.button("🔍 Aplicar Filtros", use_container_width=True, key="btn_aplicar_f_banco"):
-            st.session_state["filtros_aplicados_banco"] = True
-            st.rerun()
 
         query_banco = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, edad, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3 FROM clientes"
         
@@ -1351,7 +1351,7 @@ else:
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
           
-          # --- MULTI-FILTROS COMPLETOS CON BOTÓN DE APLICAR ---
+          # --- MULTI-FILTROS COMPLETOS CON BOTÓN DE APLICAR Y FECHAS ESPECÍFICAS ---
           with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
             st.markdown("##### 📂 Opciones de Filtrado Avanzado")
             
@@ -1361,17 +1361,19 @@ else:
               st.session_state["filtros_aplicados_gestion"] = False
               st.rerun()
 
-            st.markdown("---")
-            st.markdown("##### 📅 Rango por Fecha de Asignación")
-            u_asig = st.checkbox("Filtrar por Fecha de Asignación", key="f_asig_hab")
-            fa_inicio = st.date_input("Desde (Asignación):", value=obtener_ahora_mexico().date(), key="fa_ini")
-            fa_fin = st.date_input("Hasta (Asignación):", value=obtener_ahora_mexico().date(), key="fa_fin")
+            if st.button("🔍 Aplicar Filtros", use_container_width=True, key="btn_aplicar_f_gestion"):
+              st.session_state["filtros_aplicados_gestion"] = True
+              st.rerun()
 
             st.markdown("---")
-            st.markdown("##### 🔄 Rango por Fecha de Último Movimiento")
-            u_mov = st.checkbox("Filtrar por Fecha de Último Movimiento", key="f_mov_hab")
-            fm_inicio = st.date_input("Desde (Movimiento):", value=obtener_ahora_mexico().date(), key="fm_ini")
-            fm_fin = st.date_input("Hasta (Movimiento):", value=obtener_ahora_mexico().date(), key="fm_fin")
+            st.markdown("##### 📅 Fecha Específica de Asignación")
+            u_asig = st.checkbox("Filtrar por Fecha de Asignación Específica", key="f_asig_hab")
+            fa_especifica = st.date_input("Fecha de Asignación:", value=obtener_ahora_mexico().date(), key="fa_esp")
+
+            st.markdown("---")
+            st.markdown("##### 🔄 Fecha Específica de Último Movimiento")
+            u_mov = st.checkbox("Filtrar por Fecha de Último Movimiento Específica", key="f_mov_hab")
+            fm_especifica = st.date_input("Fecha de Último Movimiento:", value=obtener_ahora_mexico().date(), key="fm_esp")
 
             st.markdown("---")
             st.markdown("##### 🏢 Mercado / Dependencia")
@@ -1392,11 +1394,6 @@ else:
             st.markdown("---")
             st.markdown("##### 📞 Estatus de Teléfono")
             f_tel_est_g = st.selectbox("Estado de Llamada:", ["Todos", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo", "No Contesta / Buzón"], key="f_tel_estado_gestion")
-
-            st.markdown("---")
-            if st.button("🔍 Aplicar Filtros", use_container_width=True, key="btn_aplicar_f_gestion"):
-              st.session_state["filtros_aplicados_gestion"] = True
-              st.rerun()
 
         with col_crear:
           st.markdown(
@@ -1424,12 +1421,12 @@ else:
         # APLICACIÓN DE FILTROS SOLO SI EL USUARIO DIO CLIC EN "APLICAR FILTROS"
         if st.session_state.get("filtros_aplicados_gestion", False):
           if st.session_state.get("f_asig_hab", False):
-            condiciones.append("ult_fecha_asignacion BETWEEN ? AND ?" if ES_SQLITE else "ult_fecha_asignacion BETWEEN %s AND %s")
-            params_query.extend([str(fa_inicio), str(fa_fin)])
+            condiciones.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+            params_query.append(str(fa_especifica))
 
           if st.session_state.get("f_mov_hab", False):
-            condiciones.append("fecha_ult_mov BETWEEN ? AND ?" if ES_SQLITE else "fecha_ult_mov BETWEEN %s AND %s")
-            params_query.extend([str(fm_inicio), str(fm_fin)])
+            condiciones.append("fecha_ult_mov = ?" if ES_SQLITE else "fecha_ult_mov = %s")
+            params_query.append(str(fm_especifica))
 
           if st.session_state.get("f_sector_gestion", "Todos") != "Todos":
             condiciones.append("sector = ?" if ES_SQLITE else "sector = %s")
