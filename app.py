@@ -173,7 +173,7 @@ def limpiar_fecha_str(val):
   if pd.isna(val) or val is None:
     return ""
   s = str(val).strip()
-  if not s or s.lower() == "nan" == "0":
+  if not s or s.lower() == "nan" or s == "0":
     return ""
   return s.split(" ")[0] if " " in s else s
 
@@ -1343,6 +1343,14 @@ else:
           with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
             st.markdown("##### 📂 Opciones de Filtrado Avanzado")
 
+            st.markdown("##### 👤 Usuario Asignado")
+            with engine.connect() as conn_u:
+              res_usr_db = conn_u.exec_driver_sql("SELECT DISTINCT telefonista_asignada FROM clientes WHERE telefonista_asignada IS NOT NULL AND telefonista_asignada != ''").fetchall()
+            usuarios_bd = sorted(list(set([r[0] for r in res_usr_db if r[0]])))
+            opciones_agentes_admin = ["Todos", "Sin Asignar"] + usuarios_bd
+            f_usuario_admin = st.selectbox("Filtrar por Usuario Asignado:", opciones_agentes_admin, key="f_usuario_admin_sel")
+
+            st.markdown("---")
             st.markdown("##### 📅 Fecha Específica de Asignación")
             filtrar_fa = st.checkbox("Filtrar por esta fecha de asignación", key="f_asig_hab")
             fa_especifica = st.date_input("Fecha de Asignación:", value=obtener_ahora_mexico().date(), key="fa_esp")
@@ -1358,11 +1366,6 @@ else:
               res_sec_g = conn_s.exec_driver_sql("SELECT DISTINCT sector FROM clientes WHERE sector IS NOT NULL AND sector != ''").fetchall()
             sectores_g = ["Todos"] + [r[0] for r in res_sec_g if r[0]]
             f_sec_g = st.selectbox("Seleccionar Mercado/Dependencia:", sectores_g, key="f_sector_gestion")
-
-            st.markdown("---")
-            st.markdown("##### 👤 Telefonista / Agente Asignado")
-            agentes_g = ["Todos", "Sin Asignar"] + obtener_usuarios_por_rol("Telefonista") + obtener_usuarios_por_rol("Asesor")
-            f_tele_g = st.selectbox("Seleccionar Agente:", agentes_g, key="f_tele_gestion")
 
             st.markdown("---")
             st.markdown("##### 📌 Estatus General")
@@ -1399,6 +1402,10 @@ else:
         # CONSULTA: APLICA FILTROS AUTOMÁTICAMENTE SEGÚN LO SELECCIONADO EN EL POPOVER
         query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus FROM clientes"
 
+        if st.session_state.get("f_usuario_admin_sel", "Todos") != "Todos":
+          condiciones.append("telefonista_asignada = ?" if ES_SQLITE else "telefonista_asignada = %s")
+          params_query.append(st.session_state["f_usuario_admin_sel"])
+
         if st.session_state.get("f_asig_hab", False):
           condiciones.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
           params_query.append(str(fa_especifica))
@@ -1410,10 +1417,6 @@ else:
         if st.session_state.get("f_sector_gestion", "Todos") != "Todos":
           condiciones.append("sector = ?" if ES_SQLITE else "sector = %s")
           params_query.append(st.session_state["f_sector_gestion"])
-
-        if st.session_state.get("f_tele_gestion", "Todos") != "Todos":
-          condiciones.append("telefonista_asignada = ?" if ES_SQLITE else "telefonista_asignada = %s")
-          params_query.append(st.session_state["f_tele_gestion"])
 
         if st.session_state.get("f_estatus_gestion", "Todos") != "Todos":
           condiciones.append("estatus = ?" if ES_SQLITE else "estatus = %s")
