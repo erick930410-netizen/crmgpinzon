@@ -82,9 +82,12 @@ st.markdown(
         border: none !important;
     }
     
+    /* POPOVER ANCHO AMPLIADO Y SCROLLABLE */
     div[data-testid="stPopoverBody"] {
-        width: 420px !important;
-        max-width: 420px !important;
+        width: 440px !important;
+        max-width: 440px !important;
+        max-height: 520px !important;
+        overflow-y: auto !important;
         padding: 16px !important;
     }
     div[data-testid="stPopoverBody"] button {
@@ -214,7 +217,6 @@ with engine.begin() as conn_sql:
     )
     """)
 
-  # SEGURIDAD: Agregar columna telefono_reciente si la tabla ya existía sin ella
   try:
     conn_sql.exec_driver_sql(
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS telefono_reciente TEXT DEFAULT ''"
@@ -620,11 +622,21 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   )
 
   if tot_filt > cant_por_pagina:
-    p_act = st.selectbox(
-        f"📄 Páginas (Bloques de 100 de {tot_filt} coincidentes):",
-        range(1, tot_pags + 1),
-        key=f"pag_num_{key_suffix}",
-    )
+    col_p1, col_p2 = st.columns([1, 1])
+    with col_p1:
+      p_act = st.selectbox(
+          f"📄 Páginas (Bloques de 100 de {tot_filt} coincidentes):",
+          range(1, tot_pags + 1),
+          key=f"pag_num_{key_suffix}",
+      )
+    with col_p2:
+      st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+      if st.button("✅ Seleccionar los 100 de esta página", key=f"btn_sel100_{key_suffix}"):
+        pagina_rfcs = df.iloc[(p_act - 1) * cant_por_pagina : p_act * cant_por_pagina]["rfc"].tolist()
+        prev = st.session_state.get(f"sel_rfcs_{key_suffix}", [])
+        st.session_state[f"sel_rfcs_{key_suffix}"] = list(set(prev + pagina_rfcs))
+        st.rerun()
+
     df_a_mostrar = df.iloc[
         (p_act - 1) * cant_por_pagina : p_act * cant_por_pagina
     ].copy()
@@ -1221,10 +1233,8 @@ else:
         
         with st.popover("⚙️ Opciones de Tabla y Multi-Filtros Avanzados", use_container_width=False):
           st.markdown("##### ⚙️ Acciones Rápidas")
-          if st.button("✅ Seleccionar 100 de esta página", use_container_width=True):
-            pass
           
-          if st.button("❌ Desmarcar Todos", use_container_width=True):
+          if st.button("❌ Desmarcar Todos", use_container_width=True, key="btn_desm_banco"):
             st.session_state["sel_rfcs_banco"] = []
             st.rerun()
 
@@ -1234,7 +1244,7 @@ else:
           st.markdown("---")
           st.markdown("##### 📂 Panel de Multi-Filtros Acumulativos")
           
-          if st.button("🔄 Restablecer / Borrar Filtros", use_container_width=True):
+          if st.button("🔄 Restablecer / Borrar Filtros", use_container_width=True, key="btn_reset_banco"):
             st.session_state.pop("filtro_tel_banco", None)
             st.session_state.pop("filtro_sector_banco", None)
             st.session_state.pop("filtro_estatus_banco", None)
@@ -1279,6 +1289,48 @@ else:
           renderizar_bloque_con_tabla(
               df_banco, key_suffix="banco", ocultar_tels=False
           )
+          
+          rfcs_sel_banco = st.session_state.get("sel_rfcs_banco", [])
+          cant_sel_b = len(rfcs_sel_banco)
+
+          st.markdown("---")
+          st.subheader("⚡ Actualización y Asignación Masiva")
+          cb1, cb2, cb3 = st.columns([2, 2, 1])
+          with cb1:
+            tele_destino_b = st.selectbox(
+                "Asignar a:",
+                obtener_usuarios_por_rol("Telefonista")
+                + obtener_usuarios_por_rol("Asesor"),
+                key="sel_tele_banco"
+            )
+          with cb2:
+            estatus_masivo_b = st.selectbox(
+                "Cambiar Estatus A:",
+                [
+                    "Asignado",
+                    "Disponible",
+                    "En Seguimiento",
+                    "No Interesado",
+                ],
+                key="sel_est_banco"
+            )
+          with cb3:
+            st.metric("Seleccionados", cant_sel_b)
+
+          if st.button("🚀 Aplicar Cambios Masivos", key="btn_aplicar_banco"):
+            if cant_sel_b == 0:
+              st.warning("⚠️ Marca la casilla 'Seleccionar' en la tabla para asignar.")
+            else:
+              with engine.begin() as conn_sql:
+                for rfc_item in rfcs_sel_banco:
+                  conn_sql.exec_driver_sql(
+                      f"UPDATE clientes SET telefonista_asignada = {PH},"
+                      f" estatus = {PH} WHERE rfc = {PH}",
+                      (tele_destino_b, estatus_masivo_b, rfc_item),
+                  )
+              st.session_state["sel_rfcs_banco"] = []
+              st.success(f"✅ ¡Se actualizaron {cant_sel_b} prospectos correctamente!")
+              st.rerun()
 
       elif opcion == "3. Gestión y Asignación de Prospectos":
         st.header("🔄 Gestión y Asignación de Prospectos")
@@ -1291,17 +1343,47 @@ else:
           st.markdown(
               "<div style='margin-top: 28px;'></div>", unsafe_allow_html=True
           )
+          
+          # --- MULTI-FILTROS COMPLETOS POR DIVERSAS CAMPOS ---
           with st.popover("🔍 Filtros Avanzados y Fechas", use_container_width=True):
-            st.markdown("##### 📅 Filtrar por Rango de Fechas")
-            usar_filtro_fechas = st.checkbox("Habilitar filtro de fechas de asignación")
-            f_inicio = st.date_input("Desde:", value=obtener_ahora_mexico().date())
-            f_fin = st.date_input("Hasta:", value=obtener_ahora_mexico().date())
+            st.markdown("##### 📂 Opciones de Filtrado Avanzado")
             
+            if st.button("🔄 Restablecer Filtros", use_container_width=True, key="btn_reset_gestion"):
+              for k_f in ["f_asig_hab", "f_mov_hab", "f_sector_gestion", "f_tele_gestion", "f_estatus_gestion", "f_tel_estado_gestion"]:
+                st.session_state.pop(k_f, None)
+              st.rerun()
+
             st.markdown("---")
-            filtro_estatus_avanzado = st.selectbox(
-                "Estatus específico:",
-                ["Todos", "Disponible", "Asignado", "En Seguimiento", "Cita Agendada", "No Interesado"]
-            )
+            st.markdown("##### 📅 Rango por Fecha de Asignación")
+            u_asig = st.checkbox("Filtrar por Fecha de Asignación", key="f_asig_hab")
+            fa_inicio = st.date_input("Desde (Asignación):", value=obtener_ahora_mexico().date(), key="fa_ini")
+            fa_fin = st.date_input("Hasta (Asignación):", value=obtener_ahora_mexico().date(), key="fa_fin")
+
+            st.markdown("---")
+            st.markdown("##### 🔄 Rango por Fecha de Último Movimiento")
+            u_mov = st.checkbox("Filtrar por Fecha de Último Movimiento", key="f_mov_hab")
+            fm_inicio = st.date_input("Desde (Movimiento):", value=obtener_ahora_mexico().date(), key="fm_ini")
+            fm_fin = st.date_input("Hasta (Movimiento):", value=obtener_ahora_mexico().date(), key="fm_fin")
+
+            st.markdown("---")
+            st.markdown("##### 🏢 Mercado / Dependencia")
+            with engine.connect() as conn_s:
+              res_sec_g = conn_s.exec_driver_sql("SELECT DISTINCT sector FROM clientes WHERE sector IS NOT NULL AND sector != ''").fetchall()
+            sectores_g = ["Todos"] + [r[0] for r in res_sec_g if r[0]]
+            f_sec_g = st.selectbox("Seleccionar Mercado/Dependencia:", sectores_g, key="f_sector_gestion")
+
+            st.markdown("---")
+            st.markdown("##### 👤 Telefonista / Agente Asignado")
+            agentes_g = ["Todos", "Sin Asignar"] + obtener_usuarios_por_rol("Telefonista") + obtener_usuarios_por_rol("Asesor")
+            f_tele_g = st.selectbox("Seleccionar Agente:", agentes_g, key="f_tele_gestion")
+
+            st.markdown("---")
+            st.markdown("##### 📌 Estatus General")
+            f_est_g = st.selectbox("Estatus Específico:", ["Todos", "Disponible", "Asignado", "En Seguimiento", "Cita Agendada", "No Interesado"], key="f_estatus_gestion")
+
+            st.markdown("---")
+            st.markdown("##### 📞 Estatus de Teléfono")
+            f_tel_est_g = st.selectbox("Estado de Llamada:", ["Todos", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo", "No Contesta / Buzón"], key="f_tel_estado_gestion")
 
         with col_crear:
           st.markdown(
@@ -1326,19 +1408,32 @@ else:
             patron = f"%{busqueda}%"
             params_query.extend([patron, patron, patron, patron])
 
-        if 'usar_filtro_fechas' in locals() and usar_filtro_fechas:
-          condiciones.append(
-              "ult_fecha_asignacion BETWEEN ? AND ?" if ES_SQLITE else "ult_fecha_asignacion BETWEEN %s AND %s"
-          )
-          params_query.extend([str(f_inicio), str(f_fin)])
+        # APLICACIÓN DINÁMICA DE FILTROS EN LA CONSULTA SQL
+        if st.session_state.get("f_asig_hab", False):
+          condiciones.append("ult_fecha_asignacion BETWEEN ? AND ?" if ES_SQLITE else "ult_fecha_asignacion BETWEEN %s AND %s")
+          params_query.extend([str(fa_inicio), str(fa_fin)])
 
-        if 'filtro_estatus_avanzado' in locals() and filtro_estatus_avanzado != "Todos":
-          condiciones.append(
-              "estatus = ?" if ES_SQLITE else "estatus = %s"
-          )
-          params_query.append(filtro_estatus_avanzado)
+        if st.session_state.get("f_mov_hab", False):
+          condiciones.append("fecha_ult_mov BETWEEN ? AND ?" if ES_SQLITE else "fecha_ult_mov BETWEEN %s AND %s")
+          params_query.extend([str(fm_inicio), str(fm_fin)])
 
-        query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, telefonista_asignada, estatus FROM clientes"
+        if st.session_state.get("f_sector_gestion", "Todos") != "Todos":
+          condiciones.append("sector = ?" if ES_SQLITE else "sector = %s")
+          params_query.append(st.session_state["f_sector_gestion"])
+
+        if st.session_state.get("f_tele_gestion", "Todos") != "Todos":
+          condiciones.append("telefonista_asignada = ?" if ES_SQLITE else "telefonista_asignada = %s")
+          params_query.append(st.session_state["f_tele_gestion"])
+
+        if st.session_state.get("f_estatus_gestion", "Todos") != "Todos":
+          condiciones.append("estatus = ?" if ES_SQLITE else "estatus = %s")
+          params_query.append(st.session_state["f_estatus_gestion"])
+
+        if st.session_state.get("f_tel_estado_gestion", "Todos") != "Todos":
+          condiciones.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
+          params_query.extend([st.session_state["f_tel_estado_gestion"]]*3)
+
+        query = "SELECT rfc, nombre, apellido, tel1, tel2, tel3, telefono_reciente, sector, poliza, dividendos, ult_fecha_asignacion, fecha_ult_mov, telefonista_asignada, estatus FROM clientes"
         if condiciones:
           query += " WHERE " + " AND ".join(condiciones)
         query += " ORDER BY fecha_creacion DESC LIMIT 1000"
@@ -1352,6 +1447,50 @@ else:
           renderizar_bloque_con_tabla(
               df_resultados, key_suffix="gestion_admin", ocultar_tels=False
           )
+          
+          rfcs_sel_global = st.session_state.get("sel_rfcs_gestion_admin", [])
+          cant_sel = len(rfcs_sel_global)
+
+          st.markdown("---")
+          st.subheader("⚡ Actualización y Asignación Masiva")
+          c1, c2, c3 = st.columns([2, 2, 1])
+          with c1:
+            tele_destino = st.selectbox(
+                "Asignar a:",
+                obtener_usuarios_por_rol("Telefonista")
+                + obtener_usuarios_por_rol("Asesor"),
+                key="sel_tele_gestion"
+            )
+          with c2:
+            estatus_masivo = st.selectbox(
+                "Cambiar Estatus A:",
+                [
+                    "Asignado",
+                    "Disponible",
+                    "En Seguimiento",
+                    "No Interesado",
+                ],
+                key="sel_est_gestion"
+            )
+          with c3:
+            st.metric("Seleccionados", cant_sel)
+
+          if st.button("🚀 Aplicar Cambios Masivos", key="btn_aplicar_gestion"):
+            if cant_sel == 0:
+              st.warning("⚠️ Marca la casilla 'Seleccionar' en la tabla para asignar.")
+            else:
+              with engine.begin() as conn_sql:
+                for rfc_item in rfcs_sel_global:
+                  conn_sql.exec_driver_sql(
+                      f"UPDATE clientes SET telefonista_asignada = {PH},"
+                      f" estatus = {PH} WHERE rfc = {PH}",
+                      (tele_destino, estatus_masivo, rfc_item),
+                  )
+              st.session_state["sel_rfcs_gestion_admin"] = []
+              st.success(
+                  f"✅ ¡Se actualizaron {cant_sel} prospectos correctamente!"
+              )
+              st.rerun()
 
       elif opcion == "4. Reporte de Citas y Actividad":
         st.header("📊 Reporte General de Citas y Actividad")
