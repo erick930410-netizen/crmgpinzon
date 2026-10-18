@@ -588,7 +588,7 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
                     poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
                     observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
                 )
-                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
+                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
             """,
                 (
                     rfc.strip().upper(),
@@ -619,7 +619,7 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
                     poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
                     observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
                 )
-                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
+                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
                 ON CONFLICT (rfc) DO UPDATE SET
                     nombre = EXCLUDED.nombre,
                     apellido = EXCLUDED.apellido,
@@ -2494,7 +2494,14 @@ else:
     else:
       if opcion == "Prospectos":
         st.header(f"🌐 Banco General de Prospectos (Vista Asesor)")
-        busq_a = st.text_input("🔎 Buscar por RFC, Nombre, Apellido o Póliza:")
+        col_busq_ase, col_crear_ase = st.columns([3, 1])
+        with col_busq_ase:
+          busq_a = st.text_input("🔎 Buscar por RFC, Nombre, Apellido o Póliza:")
+        with col_crear_ase:
+          st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+          if st.button("➕ Crear Nuevo", use_container_width=True, key="btn_crear_prospecto_asesor"):
+            modal_crear_prospecto(usuario, rol)
+
         q_a = """
             SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1, estado_tel2, estado_tel3 
             FROM clientes
