@@ -46,7 +46,6 @@ except Exception as e:
     )
     st.stop()
 
-# Detectar el motor para ajustar la sintaxis SQL dinámicamente
 ES_SQLITE = engine.name == "sqlite"
 PH = "?" if ES_SQLITE else "%s"
 ID_SERIAL = (
@@ -250,7 +249,6 @@ def calcular_rango_fechas(f_base, tipo_periodo):
   return f_ini.strftime("%Y-%m-%d"), f_fin.strftime("%Y-%m-%d")
 
 
-# --- INICIALIZACIÓN ISOLADA DE TABLAS (PREVIENE InFailedSqlTransaction) ---
 def inicializar_base_de_datos():
   queries_init = [
       f"""
@@ -656,6 +654,7 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
         st.rerun()
 
 
+# --- TABLA CON SELECCIÓN RÁPIDA MASIVA RECUPERADA ---
 def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   df = df_entrada.copy()
   if ocultar_tels:
@@ -689,8 +688,27 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
     df_a_mostrar = df.copy()
     offset_num = 0
 
+  # --- BOTONES DE SELECCIÓN RÁPIDA MASIVA ---
+  col_b1, col_b2, col_b3, col_b4 = st.columns([1.5, 1.8, 1.5, 1.2])
+  with col_b1:
+    if st.button("☑️ Marcar Página Actual", key=f"btn_sel_pag_{key_suffix}", use_container_width=True):
+      rfcs_pag = df_a_mostrar["rfc"].tolist()
+      st.session_state[f"sel_rfcs_{key_suffix}"] = list(set(sel_prev + rfcs_pag))
+      st.rerun()
+  with col_b2:
+    if st.button(f"☑️ Marcar TODOS ({tot_filt})", key=f"btn_sel_todos_{key_suffix}", use_container_width=True):
+      st.session_state[f"sel_rfcs_{key_suffix}"] = df["rfc"].tolist()
+      st.rerun()
+  with col_b3:
+    if st.button("🧹 Desmarcar Todo", key=f"btn_desmarcar_{key_suffix}", use_container_width=True):
+      st.session_state[f"sel_rfcs_{key_suffix}"] = []
+      st.rerun()
+  with col_b4:
+    cant_actuales_sel = len(st.session_state.get(f"sel_rfcs_{key_suffix}", []))
+    st.markdown(f"<div style='padding-top:8px; font-weight:bold; color:#0072CE;'>Selected: {cant_actuales_sel}</div>", unsafe_allow_html=True)
+
   df_a_mostrar.insert(0, "#", range(offset_num + 1, offset_num + len(df_a_mostrar) + 1))
-  df_a_mostrar["Seleccionar"] = df_a_mostrar["rfc"].isin(sel_prev)
+  df_a_mostrar["Seleccionar"] = df_a_mostrar["rfc"].isin(st.session_state.get(f"sel_rfcs_{key_suffix}", []))
 
   column_config = {
       "#": st.column_config.NumberColumn("#", width="small", disabled=True),
@@ -701,13 +719,13 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   }
   cols_dis = [c for c in df.columns if c not in ["Seleccionar"]] + ["#"]
 
-  if sel_prev:
+  if st.session_state.get(f"sel_rfcs_{key_suffix}", []):
     if st.button(
         "🚀 Abrir / Ver Ficha",
         key=f"btn_sup_{key_suffix}",
         use_container_width=True,
     ):
-      st.session_state["prospecto_editar_rfc"] = str(sel_prev[0])
+      st.session_state["prospecto_editar_rfc"] = str(st.session_state[f"sel_rfcs_{key_suffix}"][0])
       st.rerun()
 
   editor_res = st.data_editor(
@@ -720,10 +738,10 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   )
 
   sel_actual = editor_res[editor_res["Seleccionar"] == True]["rfc"].tolist()
-  otros = [r for r in sel_prev if r not in df_a_mostrar["rfc"].tolist()]
+  otros = [r for r in st.session_state.get(f"sel_rfcs_{key_suffix}", []) if r not in df_a_mostrar["rfc"].tolist()]
   final_sel = list(set(otros + sel_actual))
 
-  if final_sel != sel_prev:
+  if final_sel != st.session_state.get(f"sel_rfcs_{key_suffix}", []):
     st.session_state[f"sel_rfcs_{key_suffix}"] = final_sel
     st.rerun()
 
@@ -2317,3 +2335,283 @@ else:
           sub_citas = df_citas_asesores[df_citas_asesores["Asesor"] == asr] if not df_citas_asesores.empty else pd.DataFrame()
           tot_citas = len(sub_citas)
           asistidas = len(sub_citas[sub_citas["Estado"].str.contains("Asistida", case=False, na=False)]) if not sub_citas.empty else 0
+
+          sub_hist = df_hist_asesores[df_hist_asesores["Asesor"] == asr] if not df_hist_asesores.empty else pd.DataFrame()
+          cierres = len(sub_hist[sub_hist["Accion"] == "Cierre / Actualización"]) if not sub_hist.empty else 0
+          servicios = len(sub_hist[sub_hist["Accion"] == "Solo Servicio"]) if not sub_hist.empty else 0
+          
+          monto_total = 0.0
+          if not sub_hist.empty:
+            for det in sub_hist["Detalle"].fillna(""):
+              if "Monto Act: $" in det:
+                try:
+                  monto_str = det.split("Monto Act: $")[1].split(" ")[0].replace(",", "")
+                  monto_total += float(monto_str)
+                except Exception:
+                  pass
+
+          efectividad = f"{(cierres / asistidas * 100):.1f}%" if asistidas > 0 else "0.0%"
+
+          datos_resumen.append({
+              "Asesor": asr,
+              "Citas Agendadas": tot_citas,
+              "Citas Asistidas": asistidas,
+              "Cierres / Actualizaciones": cierres,
+              "Solo Servicio": servicios,
+              "Monto Actualizaciones": f"${monto_total:,.2f}",
+              "% Efectividad Cierre": efectividad
+          })
+
+        df_resumen_asesores = pd.DataFrame(datos_resumen)
+
+        m_tot_citas = df_resumen_asesores["Citas Agendadas"].sum() if not df_resumen_asesores.empty else 0
+        m_tot_asist = df_resumen_asesores["Citas Asistidas"].sum() if not df_resumen_asesores.empty else 0
+        m_tot_cierres = df_resumen_asesores["Cierres / Actualizaciones"].sum() if not df_resumen_asesores.empty else 0
+        m_tot_serv = df_resumen_asesores["Solo Servicio"].sum() if not df_resumen_asesores.empty else 0
+
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Citas Agendadas", m_tot_citas)
+        kpi2.metric("Citas Asistidas", m_tot_asist)
+        kpi3.metric("💼 Cierres Totales", m_tot_cierres)
+        kpi4.metric("🛠️ Servicios Realizados", m_tot_serv)
+
+        st.markdown("---")
+        st.subheader("🏆 Tabla Comparativa por Asesor")
+        
+        if df_resumen_asesores.empty:
+          st.info("No hay asesores o actividad registrada en el período.")
+        else:
+          st.markdown(
+              df_resumen_asesores.to_html(classes="custom-table", index=False, escape=False),
+              unsafe_allow_html=True,
+          )
+
+        st.markdown("---")
+        st.subheader("📜 Detalle de Transacciones Comercial")
+        if df_hist_asesores.empty:
+          st.caption("No hay actividades comerciales registradas en este rango de fechas.")
+        else:
+          st.dataframe(df_hist_asesores, use_container_width=True, hide_index=True)
+
+    elif rol == "Base de Datos":
+      if opcion == "Mis Prospectos Asignados (Depuración BD)":
+        st.header(f"🗃️ Prospectos Asignados para Depuración ({usuario})")
+        busqueda_bd = st.text_input("🔎 Buscar por RFC, Nombre o Apellido:")
+        q_bd = f"""
+            SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, estatus 
+            FROM clientes WHERE telefonista_asignada = {PH}
+        """
+        params_bd = (usuario,)
+        if busqueda_bd:
+          if ES_SQLITE:
+            q_bd += " AND (rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ?)"
+          else:
+            q_bd += " AND (rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s)"
+          pbd = f"%{busqueda_bd}%"
+          params_bd = (usuario, pbd, pbd, pbd)
+
+        df_bd = pd.read_sql(q_bd, con=engine, params=params_bd)
+        if df_bd.empty:
+          st.info(
+              "No tienes prospectos asignados para depuración en este momento."
+          )
+        else:
+          renderizar_bloque_con_tabla(
+              df_bd, key_suffix="gestion_bd", ocultar_tels=True
+          )
+
+    elif rol == "Telefonista":
+      if opcion == "Mis Prospectos y Gestión":
+        st.header(f"📞 Mis Prospectos Asignados ({usuario})")
+        col_busq_tele, col_pop_tele = st.columns([3, 1])
+        with col_busq_tele:
+          busqueda_tele = st.text_input("🔎 Buscar:")
+        with col_pop_tele:
+          st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+          with st.popover("📅 Filtrar por Fecha Asignación"):
+            st.markdown("##### 📅 Fecha Específica")
+            filtrar_fa_tele = st.checkbox("Filtrar por esta fecha", key="f_asig_hab_tele")
+            fa_tele_esp = st.date_input("Fecha Asignación:", value=obtener_ahora_mexico().date(), key="fa_tele_esp")
+
+        q_t = f"""
+            SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1, estado_tel2, estado_tel3 
+            FROM clientes WHERE telefonista_asignada = {PH}
+        """
+        params_t = [usuario]
+        conds_t = []
+
+        if filtrar_fa_tele:
+          conds_t.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+          params_t.append(str(fa_tele_esp))
+
+        if busqueda_tele:
+          if ES_SQLITE:
+            conds_t.append(
+                "(rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ? OR poliza LIKE ?)"
+            )
+          else:
+            conds_t.append(
+                "(rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s OR poliza ILIKE %s)"
+            )
+          pt = f"%{busqueda_tele}%"
+          params_t.extend([pt, pt, pt, pt])
+
+        if conds_t:
+          q_t += " AND " + " AND ".join(conds_t)
+
+        df_p = pd.read_sql(q_t, con=engine, params=tuple(params_t))
+        if df_p.empty:
+          st.info("No se encontraron prospectos.")
+        else:
+          renderizar_bloque_con_tabla(
+              df_p, key_suffix="gestion_tele", ocultar_tels=True
+          )
+
+      elif opcion == "Mis Citas Agendadas":
+        st.header(f"📅 Agenda Diaria ({usuario})")
+        f_sel = st.date_input(
+            "Fecha:", value=obtener_ahora_mexico().date()
+        ).strftime("%Y-%m-%d")
+        df_ag = pd.read_sql(
+            f"""
+            SELECT fecha as "Fecha", hora as "Hora", cliente as "Cliente", estado as "Estado", notas as "Notas" 
+            FROM citas WHERE agente = {PH} AND fecha = {PH} ORDER BY hora ASC
+        """,
+            con=engine,
+            params=(usuario, f_sel),
+        )
+        if df_ag.empty:
+          st.info("No hay citas para esta fecha.")
+        else:
+          st.markdown(
+              df_ag.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
+          )
+
+    else:
+      if opcion == "Prospectos":
+        st.header(f"🌐 Banco General de Prospectos (Vista Asesor)")
+        busq_a = st.text_input("🔎 Buscar por RFC, Nombre, Apellido o Póliza:")
+        q_a = """
+            SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1, estado_tel2, estado_tel3 
+            FROM clientes
+        """
+        params_a = []
+        if busq_a:
+          if ES_SQLITE:
+            q_a += " WHERE (rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ? OR poliza LIKE ?)"
+          else:
+            q_a += " WHERE (rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s OR poliza ILIKE %s)"
+          pa = f"%{busq_a}%"
+          params_a = [pa, pa, pa, pa]
+
+        q_a += " ORDER BY fecha_creacion DESC LIMIT 1000"
+
+        df_pa = pd.read_sql(q_a, con=engine, params=tuple(params_a) if params_a else None)
+        if df_pa.empty:
+          st.info("No se encontraron prospectos.")
+        else:
+          renderizar_bloque_con_tabla(
+              df_pa, key_suffix="banco_general_asesor", ocultar_tels=True
+          )
+
+      elif opcion == "Bolsa de Citas del Día (Asesores)":
+        st.header(f"💼 Bolsa de Citas del Día ({usuario})")
+        f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+        
+        df_b = pd.read_sql(
+            f"""
+            SELECT rfc_cliente as rfc, id, fecha as "Fecha", hora as "Hora", cliente as "Cliente", telefono as "Teléfono", estado as "Estado", notas as "Notas" 
+            FROM citas 
+            WHERE fecha = {PH} AND (asesor = {PH} OR asesor = 'Sin Asignar') 
+            ORDER BY hora ASC
+        """,
+            con=engine,
+            params=(f_hoy, usuario),
+        )
+        if df_b.empty:
+          st.info("No hay citas en la bolsa para hoy.")
+        else:
+          renderizar_bloque_con_tabla(
+              df_b, key_suffix="bolsa_citas_asesor", ocultar_tels=True
+          )
+
+      elif opcion == "Mis Registros de Hoy":
+        st.header(f"📝 Mis Registros de Hoy ({usuario})")
+        f_hoy = obtener_ahora_mexico().strftime("%Y-%m-%d")
+        like_op = "LIKE" if ES_SQLITE else "LIKE"
+        df_rh = pd.read_sql(
+            f"""
+            SELECT h.fecha_registro as "Fecha/Hora", c.nombre || ' ' || c.apellido as "Cliente", h.accion as "Acción", h.detalle as "Detalle" 
+            FROM historial_llamadas h JOIN clientes c ON h.rfc_cliente = c.rfc 
+            WHERE h.usuario = {PH} AND h.fecha_registro {like_op} {PH} ORDER BY h.id DESC
+        """,
+            con=engine,
+            params=(usuario, f"{f_hoy}%"),
+        )
+        if df_rh.empty:
+          st.info("No tienes registros hoy.")
+        else:
+          st.markdown(
+              df_rh.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
+          )
+
+      elif opcion == "📊 Reportes de Citas y Asistencias":
+        st.header("📊 Reportes de Desempeño y Citas")
+        f_rep_a = st.date_input(
+            "Fecha Base:", value=obtener_ahora_mexico().date()
+        ).strftime("%Y-%m-%d")
+        
+        df_ra = pd.read_sql(
+            f"SELECT * FROM citas WHERE agente = {PH} AND fecha = {PH}",
+            con=engine,
+            params=(usuario, f_rep_a),
+        )
+        
+        like_op = "LIKE" if ES_SQLITE else "LIKE"
+        with engine.connect() as conn_v:
+          res_vta = conn_v.exec_driver_sql(
+              f"""
+              SELECT COUNT(*) FROM historial_llamadas 
+              WHERE usuario = {PH} AND accion = 'Cierre / Actualización' AND fecha_registro {like_op} {PH}
+          """,
+              (usuario, f"{f_rep_a}%"),
+          ).fetchone()
+        df_ventas_asesor = res_vta[0] if res_vta else 0
+
+        tot_citas_asesor = len(df_ra)
+        asis_asesor = (
+            len(
+                df_ra[
+                    df_ra["estado"].str.contains(
+                        "Asistida", case=False, na=False
+                    )
+                ]
+            )
+            if not df_ra.empty
+            else 0
+        )
+        
+        eficacia_cierre = f"{(df_ventas_asesor / asis_asesor * 100):.1f}%" if asis_asesor > 0 else "0.0%"
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Mis Citas del Día", tot_citas_asesor)
+        m2.metric("Citas Asistidas", asis_asesor)
+        m3.metric("💼 Cierres / Actualizaciones", df_ventas_asesor)
+        m4.metric("🎯 Eficacia de Cierre", eficacia_cierre)
+
+        st.markdown("---")
+        if not df_ra.empty:
+          st.markdown(
+              df_ra.to_html(
+                  classes="custom-table", index=False, escape=False
+              ),
+              unsafe_allow_html=True,
+          )
+        else:
+          st.info("No hay citas registradas para esta fecha.")
