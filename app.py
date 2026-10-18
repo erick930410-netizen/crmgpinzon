@@ -2316,4 +2316,4 @@ else:
         for asr in lista_asesores_db:
           sub_citas = df_citas_asesores[df_citas_asesores["Asesor"] == asr] if not df_citas_asesores.empty else pd.DataFrame()
           tot_citas = len(sub_citas)
-          asistidas = len(sub_citas[sub_citas["Estado"].str.contains("Asistida", case=False, na=False
+          asistidas = len(sub_citas[sub_citas["Estado"].str.contains("Asistida", case=False, na=False)]) if not sub_citas.empty else 0
