@@ -654,7 +654,7 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
         st.rerun()
 
 
-# --- TABLA CON SELECCIÓN RÁPIDA MASIVA RECUPERADA ---
+# --- TABLA CON SELECCIÓN RÁPIDA MASIVA ---
 def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
   df = df_entrada.copy()
   if ocultar_tels:
@@ -688,7 +688,6 @@ def renderizar_bloque_con_tabla(df_entrada, key_suffix, ocultar_tels=False):
     df_a_mostrar = df.copy()
     offset_num = 0
 
-  # --- BOTONES DE SELECCIÓN RÁPIDA MASIVA ---
   col_b1, col_b2, col_b3, col_b4 = st.columns([1.5, 1.8, 1.5, 1.2])
   with col_b1:
     if st.button("☑️ Marcar Página Actual", key=f"btn_sel_pag_{key_suffix}", use_container_width=True):
@@ -1924,7 +1923,7 @@ else:
 
           st.markdown("---")
           st.subheader("⚡ Actualización y Asignación Masiva")
-          c1, c2, c3 = st.columns([2, 2, 1])
+          c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
           with c1:
             tele_destino = st.selectbox(
                 "Asignar a:",
@@ -1941,23 +1940,25 @@ else:
                 ],
             )
           with c3:
+            nueva_fecha_asig = st.date_input("Fecha Asignación Masiva:", value=obtener_ahora_mexico().date())
+          with c4:
             st.metric("Seleccionados", cant_sel)
 
           if st.button("🚀 Aplicar Cambios Masivos"):
             if cant_sel == 0:
               st.warning("⚠️ Marca la casilla 'Seleccionar' en la tabla.")
             else:
-              f_hoy_asig = obtener_ahora_mexico().strftime("%Y-%m-%d")
+              f_asig_str = nueva_fecha_asig.strftime("%Y-%m-%d")
               with engine.begin() as conn_sql:
                 for rfc_item in rfcs_sel_global:
                   conn_sql.exec_driver_sql(
                       f"UPDATE clientes SET telefonista_asignada = {PH},"
                       f" estatus = {PH}, ult_fecha_asignacion = {PH} WHERE rfc = {PH}",
-                      (tele_destino, estatus_masivo, f_hoy_asig, rfc_item),
+                      (tele_destino, estatus_masivo, f_asig_str, rfc_item),
                   )
               st.session_state["sel_rfcs_gestion_admin"] = []
               st.success(
-                  f"✅ ¡Se actualizaron {cant_sel} prospectos correctamente!"
+                  f"✅ ¡Se actualizaron {cant_sel} prospectos correctamente con fecha {f_asig_str}!"
               )
               st.rerun()
 
