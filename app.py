@@ -876,10 +876,10 @@ if st.session_state["usuario_logueado"] is None:
       unsafe_allow_html=True,
   )
 
-  # Título principal expandido de extremo a extremo, en color blanco puro
+  # Título principal 20% más grande, expandido de extremo a extremo en color blanco puro
   st.markdown(
       """
-      <h1 style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; font-size: 4.5rem; font-weight: 950; letter-spacing: 2px; margin-bottom: 0.5rem; text-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 100%; white-space: nowrap;">GRUPO PINZON T</h1>
+      <h1 style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; font-size: 5.4rem; font-weight: 950; letter-spacing: 2px; margin-bottom: 0.5rem; text-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 100%; white-space: nowrap;">GRUPO PINZON T</h1>
   """,
       unsafe_allow_html=True,
   )
@@ -887,13 +887,15 @@ if st.session_state["usuario_logueado"] is None:
   col_logo_izq, col_espacio_medio, col_login_der = st.columns([1.6, 0.3, 1.1], gap="large")
 
   with col_logo_izq:
-    # Logotipo y subtítulo ampliados 3 veces su tamaño original
+    # Logotipo y subtítulo centrado reducido un 20%
     st.markdown(
         """
         <div style="background: #ffffff; color: #002B49; padding: 45px 70px; border-radius: 24px; box-shadow: 0 12px 30px rgba(0,0,0,0.3); display: inline-block; text-align: center;">
             <span style="font-size: 16rem; font-weight: 900; color: #0072CE; line-height: 0.8;">G</span><span style="font-size: 12rem; font-weight: 900; color: #78BE20; line-height: 0.8;">p</span>
         </div>
-        <p style="margin: 20px 0 0 0; font-size: 2.85rem; color: #ffffff !important; font-weight: 800; text-shadow: 0 3px 8px rgba(0,0,0,0.4); line-height: 1.2;">Sistema de Control de Prospectos y CRM</p>
+        <div style="text-align: center; width: 100%; display: flex; justify-content: center;">
+            <p style="margin: 20px 0 0 0; font-size: 2.25rem; color: #ffffff !important; font-weight: 800; text-shadow: 0 3px 8px rgba(0,0,0,0.4); line-height: 1.2; max-width: 550px;">Sistema de Control de Prospectos y CRM</p>
+        </div>
     """,
         unsafe_allow_html=True,
     )
