@@ -852,9 +852,9 @@ if st.session_state["usuario_logueado"] is None:
               background-color: #005a9c !important;
           }
           .block-container {
-              padding-top: 6rem !important;
+              padding-top: 3rem !important;
               padding-bottom: 0rem !important;
-              max-width: 90% !important;
+              max-width: 94% !important;
           }
           .stTextInput label, .stTextInput div {
               color: #ffffff !important;
@@ -876,31 +876,32 @@ if st.session_state["usuario_logueado"] is None:
       unsafe_allow_html=True,
   )
 
-  # Columnas perfectamente balanceadas y centradas verticalmente para el Login
-  col_espacio_izq, col_logo, col_login, col_espacio_der = st.columns([0.5, 3.2, 2.2, 0.5], gap="large")
+  # Distribución exacta tal como en tu captura: Título grande arriba, logo centrado abajo a la izquierda, login a la derecha
+  st.markdown(
+      """
+      <h1 style="color: #ffffff !important; font-size: 4.2rem; font-weight: 900; letter-spacing: 2px; margin-bottom: 2rem; text-shadow: 0 3px 10px rgba(0,0,0,0.3);">GRUPO PINZON T</h1>
+  """,
+      unsafe_allow_html=True,
+  )
 
-  with col_logo:
+  col_logo_izq, col_espacio_medio, col_login_der = st.columns([1.5, 0.5, 1.2], gap="large")
+
+  with col_logo_izq:
     st.markdown(
         """
-        <div style="display: flex; align-items: center; gap: 35px; padding-top: 3.5rem;">
-            <div style="font-family: 'Segoe UI', sans-serif; font-weight: 900; line-height: 1; background: #ffffff; color: #002B49; padding: 36px 46px; border-radius: 26px; box-shadow: 0 12px 30px rgba(0,0,0,0.35); flex-shrink: 0;">
-                <span style="font-size: 7.5rem; color: #0072CE;">G</span><span style="font-size: 5.5rem; color: #78BE20;">P</span>
-            </div>
-            <div style="display: flex; flex-direction: column; justify-content: center;">
-                <h1 style="color: #ffffff !important; margin: 0; font-size: 4.2rem; font-weight: 900; letter-spacing: 2px; line-height: 1.1; text-shadow: 0 3px 10px rgba(0,0,0,0.3);">GRUPO</h1>
-                <h1 style="color: #ffffff !important; margin: 0; font-size: 4.2rem; font-weight: 900; letter-spacing: 2px; line-height: 1.1; text-shadow: 0 3px 10px rgba(0,0,0,0.3);">PINZÓN</h1>
-                <p style="margin: 14px 0 0 0; font-size: 1.5rem; color: #ffffff !important; font-weight: 500; opacity: 0.95; text-shadow: 0 2px 6px rgba(0,0,0,0.3);">Sistema de Control de Prospectos y CRM</p>
-            </div>
+        <div style="background: #ffffff; color: #002B49; padding: 45px 55px; border-radius: 24px; box-shadow: 0 12px 30px rgba(0,0,0,0.35); display: inline-block; text-align: center;">
+            <span style="font-size: 7.5rem; font-weight: 900; color: #0072CE; line-height: 1;">G</span><span style="font-size: 5.5rem; font-weight: 900; color: #78BE20; line-height: 1;">p</span>
         </div>
+        <p style="margin: 15px 0 0 0; font-size: 1.1rem; color: #ffffff !important; font-weight: 500; text-shadow: 0 2px 6px rgba(0,0,0,0.3);">Sistema de Control de Prospectos y CRM</p>
     """,
         unsafe_allow_html=True,
     )
 
-  with col_login:
+  with col_login_der:
     st.markdown(
         """
-        <div style="background: rgba(0, 43, 73, 0.35); padding: 35px 30px; border-radius: 16px; box-shadow: 0 8px 25px rgba(0,0,0,0.25); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); margin-top: 1rem;">
-            <h2 style='color: #ffffff !important; margin-top: 0; margin-bottom: 20px; font-size: 2.2rem; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.3); text-align: center;'>🔑 Iniciar Sesión</h2>
+        <div style="background: rgba(0, 43, 73, 0.45); padding: 30px 25px; border-radius: 16px; box-shadow: 0 8px 25px rgba(0,0,0,0.3); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15);">
+            <h2 style='color: #ffffff !important; margin-top: 0; margin-bottom: 15px; font-size: 2rem; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.3); text-align: center;'>🔑 Iniciar Sesión</h2>
     """,
         unsafe_allow_html=True,
     )
