@@ -71,14 +71,14 @@ st.markdown(
     }
 
     .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 2rem !important;
+        padding-top: 0rem !important;
+        padding-bottom: 1rem !important;
     }
 
-    h2, h3 {
-        color: #002B49 !important;
+    h1, h2, h3 {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
+    
     .stButton>button {
         background-color: #0072CE;
         color: white;
@@ -852,7 +852,7 @@ if st.session_state["usuario_logueado"] is None:
               background-color: #005a9c !important;
           }
           .block-container {
-              padding-top: 0.2rem !important;
+              padding-top: 0rem !important;
               padding-bottom: 0rem !important;
               max-width: 95% !important;
           }
@@ -876,10 +876,10 @@ if st.session_state["usuario_logueado"] is None:
       unsafe_allow_html=True,
   )
 
-  # Título principal optimizado en tamaño exacto
+  # Título principal forzado en color blanco puro perfectamente visible
   st.markdown(
       """
-      <h1 style="color: #ffffff !important; font-size: 3.3rem; font-weight: 950; letter-spacing: 1.5px; margin-bottom: 0.2rem; text-shadow: 0 3px 8px rgba(0,0,0,0.3);">GRUPO PINZON T</h1>
+      <h1 style="color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; font-size: 3.2rem; font-weight: 950; letter-spacing: 1.5px; margin-bottom: 0.2rem; text-shadow: 0 3px 8px rgba(0,0,0,0.3);">GRUPO PINZON T</h1>
   """,
       unsafe_allow_html=True,
   )
