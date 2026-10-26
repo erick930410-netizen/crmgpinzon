@@ -852,7 +852,7 @@ if st.session_state["usuario_logueado"] is None:
               background-color: #005a9c !important;
           }
           .block-container {
-              padding-top: 3rem !important;
+              padding-top: 0.5rem !important;
               padding-bottom: 0rem !important;
               max-width: 94% !important;
           }
@@ -862,9 +862,9 @@ if st.session_state["usuario_logueado"] is None:
           .stButton>button {
               background-color: #78BE20 !important;
               color: #ffffff !important;
-              font-size: 1.1rem !important;
+              font-size: 1.05rem !important;
               font-weight: bold !important;
-              padding: 0.6rem 1rem !important;
+              padding: 0.5rem 1rem !important;
               border-radius: 6px !important;
               border: none !important;
           }
@@ -876,23 +876,23 @@ if st.session_state["usuario_logueado"] is None:
       unsafe_allow_html=True,
   )
 
-  # Distribución exacta tal como en tu captura: Título grande arriba, logo centrado abajo a la izquierda, login a la derecha
+  # Título más compacto para que no obligue a hacer scroll vertical
   st.markdown(
       """
-      <h1 style="color: #ffffff !important; font-size: 4.2rem; font-weight: 900; letter-spacing: 2px; margin-bottom: 2rem; text-shadow: 0 3px 10px rgba(0,0,0,0.3);">GRUPO PINZON T</h1>
+      <h1 style="color: #ffffff !important; font-size: 3.2rem; font-weight: 950; letter-spacing: 1.5px; margin-bottom: 1rem; text-shadow: 0 3px 8px rgba(0,0,0,0.3);">GRUPO PINZON T</h1>
   """,
       unsafe_allow_html=True,
   )
 
-  col_logo_izq, col_espacio_medio, col_login_der = st.columns([1.5, 0.5, 1.2], gap="large")
+  col_logo_izq, col_espacio_medio, col_login_der = st.columns([1.5, 0.4, 1.1], gap="large")
 
   with col_logo_izq:
     st.markdown(
         """
-        <div style="background: #ffffff; color: #002B49; padding: 45px 55px; border-radius: 24px; box-shadow: 0 12px 30px rgba(0,0,0,0.35); display: inline-block; text-align: center;">
-            <span style="font-size: 7.5rem; font-weight: 900; color: #0072CE; line-height: 1;">G</span><span style="font-size: 5.5rem; font-weight: 900; color: #78BE20; line-height: 1;">p</span>
+        <div style="background: #ffffff; color: #002B49; padding: 30px 45px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); display: inline-block; text-align: center;">
+            <span style="font-size: 6rem; font-weight: 900; color: #0072CE; line-height: 1;">G</span><span style="font-size: 4.5rem; font-weight: 900; color: #78BE20; line-height: 1;">p</span>
         </div>
-        <p style="margin: 15px 0 0 0; font-size: 1.1rem; color: #ffffff !important; font-weight: 500; text-shadow: 0 2px 6px rgba(0,0,0,0.3);">Sistema de Control de Prospectos y CRM</p>
+        <p style="margin: 10px 0 0 0; font-size: 1rem; color: #ffffff !important; font-weight: 600; text-shadow: 0 2px 5px rgba(0,0,0,0.3);">Sistema de Control de Prospectos y CRM</p>
     """,
         unsafe_allow_html=True,
     )
@@ -900,15 +900,15 @@ if st.session_state["usuario_logueado"] is None:
   with col_login_der:
     st.markdown(
         """
-        <div style="background: rgba(0, 43, 73, 0.45); padding: 30px 25px; border-radius: 16px; box-shadow: 0 8px 25px rgba(0,0,0,0.3); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15);">
-            <h2 style='color: #ffffff !important; margin-top: 0; margin-bottom: 15px; font-size: 2rem; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.3); text-align: center;'>🔑 Iniciar Sesión</h2>
+        <div style="background: rgba(0, 43, 73, 0.5); padding: 22px 20px; border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.15);">
+            <h3 style='color: #ffffff !important; margin-top: 0; margin-bottom: 10px; font-size: 1.6rem; font-weight: 800; text-shadow: 0 2px 5px rgba(0,0,0,0.3); text-align: center;'>🔑 Iniciar Sesión</h3>
     """,
         unsafe_allow_html=True,
     )
     
     usr = st.text_input("Usuario", key="login_usr")
     pwd = st.text_input("Contraseña", type="password", key="login_pwd")
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-bottom: 8px;'></div>", unsafe_allow_html=True)
     if st.button("Entrar al Sistema", use_container_width=True):
       datos = autenticar(usr, pwd)
       if datos:
@@ -1101,7 +1101,6 @@ else:
     else:
 
       def ejecutar_guardado_y_salto(destino):
-        # VALIDACIÓN OBLIGATORIA DE MONTO PARA ASESORES
         if rol == "Asesor":
           accion_sel_val = st.session_state.get(f"accion_asesor_{rfc_actual}", "-- Seleccionar Acción --")
           if accion_sel_val == "Cierre / Actualización":
