@@ -2476,13 +2476,10 @@ else:
 
         if filtro_estatus_tel_tele != "Todos los estatus":
           if "No Contesta" in filtro_estatus_tel_tele:
-            like_str = "%No Contesta%"
+            # FILTRO ESTRICTO: Solo busca en los estados de los 3 teléfonos
             conds_t.append(
-                "(estado_tel1 = 'No Contesta / Buzón' OR estado_tel2 = 'No Contesta / Buzón' OR estado_tel3 = 'No Contesta / Buzón' OR observaciones_tel LIKE ?)"
-                if ES_SQLITE
-                else "(estado_tel1 = 'No Contesta / Buzón' OR estado_tel2 = 'No Contesta / Buzón' OR estado_tel3 = 'No Contesta / Buzón' OR observaciones_tel ILIKE %s)"
+                "(estado_tel1 = 'No Contesta / Buzón' OR estado_tel2 = 'No Contesta / Buzón' OR estado_tel3 = 'No Contesta / Buzón')"
             )
-            params_t.append(like_str)
           else:
             val_busq_est = filtro_estatus_tel_tele
             conds_t.append(
