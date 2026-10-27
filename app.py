@@ -1551,13 +1551,20 @@ else:
             else:
               obs_tel_actualizada = obs_prev
 
+            # Si es No Contesta / Buzón, actualizamos automáticamente el estado de tel1 para referencia de reintento
             estatus_nuevo = "Cita Agendada" if opc_llamada == "Cita" else row[15]
 
             with engine.begin() as conn_sql_tele:
-              conn_sql_tele.exec_driver_sql(
-                  f"UPDATE clientes SET observaciones_tel = {PH}, estatus = {PH} WHERE rfc = {PH}",
-                  (obs_tel_actualizada, estatus_nuevo, rfc_actual),
-              )
+              if opc_llamada == "No Contesta / Buzón":
+                conn_sql_tele.exec_driver_sql(
+                    f"UPDATE clientes SET observaciones_tel = {PH}, estatus = {PH}, estado_tel1 = 'No Contesta / Buzón' WHERE rfc = {PH}",
+                    (obs_tel_actualizada, estatus_nuevo, rfc_actual),
+                )
+              else:
+                conn_sql_tele.exec_driver_sql(
+                    f"UPDATE clientes SET observaciones_tel = {PH}, estatus = {PH} WHERE rfc = {PH}",
+                    (obs_tel_actualizada, estatus_nuevo, rfc_actual),
+                )
               
               conn_sql_tele.exec_driver_sql(
                   f"INSERT INTO historial_llamadas (rfc_cliente, usuario, accion, detalle, fecha_registro) VALUES ({PH}, {PH}, {PH}, {PH}, {PH})",
@@ -2434,13 +2441,20 @@ else:
     elif rol == "Telefonista":
       if opcion == "Mis Prospectos y Gestión":
         st.header(f"📞 Mis Prospectos Asignados ({usuario})")
-        col_busq_tele, col_pop_tele = st.columns([3, 1])
+        col_busq_tele, col_pop_tele = st.columns([2.5, 1.5])
         with col_busq_tele:
-          busqueda_tele = st.text_input("🔎 Buscar:")
+          busqueda_tele = st.text_input("🔎 Buscar por Nombre, RFC o Póliza:")
         with col_pop_tele:
           st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-          with st.popover("📅 Filtrar por Fecha Asignación"):
-            st.markdown("##### 📅 Fecha Específica")
+          with st.popover("⚙️ Filtros Avanzados y Reintentos"):
+            st.markdown("##### 📞 Estatus de Llamada (Reintentos)")
+            filtro_estatus_tel_tele = st.selectbox(
+                "Filtrar por estatus de llamada:",
+                ["Todos los estatus", "🔁 No Contesta / Buzón (Segundo Toque)", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo"],
+                key="filtro_estatus_tel_tele_sel"
+            )
+            st.markdown("---")
+            st.markdown("##### 📅 Fecha Específica de Asignación")
             filtrar_fa_tele = st.checkbox("Filtrar por esta fecha", key="f_asig_hab_tele")
             fa_tele_esp = st.date_input("Fecha Asignación:", value=obtener_ahora_mexico().date(), key="fa_tele_esp")
 
@@ -2450,6 +2464,14 @@ else:
         """
         params_t = [usuario]
         conds_t = []
+
+        if filtro_estatus_tel_tele != "Todos los estatus":
+          if "No Contesta" in filtro_estatus_tel_tele:
+            conds_t.append("(estado_tel1 = 'No Contesta / Buzón' OR estado_tel2 = 'No Contesta / Buzón' OR estado_tel3 = 'No Contesta / Buzón' OR observaciones_tel LIKE '%No Contesta%')")
+          else:
+            val_busq_est = filtro_estatus_tel_tele
+            conds_t.append("(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)" if ES_SQLITE else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)")
+            params_t.extend([val_busq_est]*3)
 
         if filtrar_fa_tele:
           conds_t.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
@@ -2472,7 +2494,7 @@ else:
 
         df_p = pd.read_sql(q_t, con=engine, params=tuple(params_t))
         if df_p.empty:
-          st.info("No se encontraron prospectos.")
+          st.info("No se encontraron prospectos con los criterios seleccionados.")
         else:
           renderizar_bloque_con_tabla(
               df_p, key_suffix="gestion_tele", ocultar_tels=True
