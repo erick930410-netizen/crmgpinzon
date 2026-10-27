@@ -1289,7 +1289,10 @@ else:
                     observaciones_tel = EXCLUDED.observaciones_tel,
                     observaciones_asesor = EXCLUDED.observaciones_asesor,
                     telefonista_asignada = EXCLUDED.telefonista_asignada,
-                    estatus = EXCLUDED.estatus
+                    estatus = EXCLUDED.estatus,
+                    estado_tel1 = EXCLUDED.estado_tel1,
+                    estado_tel2 = EXCLUDED.estado_tel2,
+                    estado_tel3 = EXCLUDED.estado_tel3
             """,
                 (
                     rfc_limpio,
@@ -1541,31 +1544,40 @@ else:
           
           if st.button("💾 Registrar Acción", key=f"btn_reg_accion_{rfc_actual}"):
             f_hoy_f = obtener_ahora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+            f_hoy_fecha_sola = obtener_ahora_mexico().strftime("%Y-%m-%d")
             obs_prev = str(row[12] or "")
             
-            if det_llamada.strip():
-              nueva_obs = f"({f_hoy_f} - {usuario}) [{opc_llamada}] {det_llamada.strip()}"
-              obs_tel_actualizada = f"{obs_prev}\n{nueva_obs}".strip() if obs_prev else nueva_obs
-            else:
-              obs_tel_actualizada = obs_prev
+            det_final_historial = det_llamada.strip() if det_llamada.strip() else "Sin observaciones adicionales"
+            nueva_obs = f"({f_hoy_f} - {usuario}) [{opc_llamada}] {det_final_historial}"
+            obs_tel_actualizada = f"{obs_prev}\n{nueva_obs}".strip() if obs_prev else nueva_obs
 
             estatus_nuevo = "Cita Agendada" if opc_llamada == "Cita" else row[15]
 
+            est_t1_val = st.session_state.get(f"est_t1_{rfc_actual}", row[16])
+            est_t2_val = st.session_state.get(f"est_t2_{rfc_actual}", row[17])
+            est_t3_val = st.session_state.get(f"est_t3_{rfc_actual}", row[18])
+
+            if opc_llamada == "No Contesta / Buzón" and est_t1_val == "Sin marcar":
+              est_t1_val = "No Contesta / Buzón"
+
             with engine.begin() as conn_sql_tele:
-              if opc_llamada == "No Contesta / Buzón":
-                conn_sql_tele.exec_driver_sql(
-                    f"UPDATE clientes SET observaciones_tel = {PH}, estatus = {PH}, estado_tel1 = 'No Contesta / Buzón' WHERE rfc = {PH}",
-                    (obs_tel_actualizada, estatus_nuevo, rfc_actual),
-                )
-              else:
-                conn_sql_tele.exec_driver_sql(
-                    f"UPDATE clientes SET observaciones_tel = {PH}, estatus = {PH} WHERE rfc = {PH}",
-                    (obs_tel_actualizada, estatus_nuevo, rfc_actual),
-                )
+              conn_sql_tele.exec_driver_sql(
+                  f"""
+                  UPDATE clientes 
+                  SET observaciones_tel = {PH}, 
+                      estatus = {PH}, 
+                      estado_tel1 = {PH}, 
+                      estado_tel2 = {PH}, 
+                      estado_tel3 = {PH},
+                      fecha_ult_mov = {PH} 
+                  WHERE rfc = {PH}
+                  """,
+                  (obs_tel_actualizada, estatus_nuevo, est_t1_val, est_t2_val, est_t3_val, f_hoy_fecha_sola, rfc_actual),
+              )
               
               conn_sql_tele.exec_driver_sql(
                   f"INSERT INTO historial_llamadas (rfc_cliente, usuario, accion, detalle, fecha_registro) VALUES ({PH}, {PH}, {PH}, {PH}, {PH})",
-                  (rfc_actual, usuario, opc_llamada, det_llamada.strip(), f_hoy_f),
+                  (rfc_actual, usuario, opc_llamada, det_final_historial, f_hoy_f),
               )
 
               if opc_llamada == "Cita":
@@ -1575,10 +1587,10 @@ else:
                     INSERT INTO citas (rfc_cliente, cliente, telefono, agente, asesor, fecha, hora, estado, notas)
                     VALUES ({PH}, {PH}, {PH}, {PH}, 'Sin Asignar', {PH}, {PH}, 'Pendiente', {PH})
                     """,
-                    (rfc_actual, cliente_nom, row[3] or "Sin Tel", usuario, str(f_cita_sel), str(h_cita_sel), det_llamada.strip()),
+                    (rfc_actual, cliente_nom, row[3] or "Sin Tel", usuario, str(f_cita_sel), str(h_cita_sel), det_final_historial),
                 )
 
-            st.success("✅ Acción y llamada registradas con éxito.")
+            st.success("✅ Acción, estatus de teléfonos y llamada registrados con éxito.")
             st.rerun()
 
       st.markdown("---")
