@@ -525,7 +525,7 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
                     poliza, dividendos, ult_fecha_asignacion, edad, fecha_ult_mov, 
                     observaciones_tel, observaciones_asesor, telefonista_asignada, estatus, estado_tel1, estado_tel2, estado_tel3
                 )
-                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, 'Sin marcar', 'Sin marcar', 'Sin marcar')
+                VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})
                 ON CONFLICT (rfc) DO UPDATE SET
                     nombre = EXCLUDED.nombre,
                     apellido = EXCLUDED.apellido
@@ -2455,11 +2455,11 @@ else:
           busqueda_tele = st.text_input("🔎 Buscar por Nombre, RFC o Póliza:")
         with col_pop_tele:
           st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-          with st.popover("⚙️ Filtros Avanzados y Reintentos"):
-            st.markdown("##### 📞 Estatus de Llamada (Reintentos)")
+          with st.popover("⚙️ Filtros Avanzados"):
+            st.markdown("##### 📞 Estatus de Llamada")
             filtro_estatus_tel_tele = st.selectbox(
                 "Filtrar por estatus de llamada:",
-                ["Todos los estatus", "🔁 No Contesta / Buzón (Segundo Toque)", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo"],
+                ["Todos los estatus", "🔁 No Contesta / Buzón", "Sin marcar", "Válido / Contesta", "Número Erróneo / Malo"],
                 key="filtro_estatus_tel_tele_sel"
             )
             st.markdown("---")
@@ -2468,36 +2468,45 @@ else:
             fa_tele_esp = st.date_input("Fecha Asignación:", value=obtener_ahora_mexico().date(), key="fa_tele_esp")
 
         q_t = f"""
-            SELECT rfc, nombre, apellido, tel1, tel2, tel3, sector, poliza, dividendos, ult_fecha_asignacion, edad, estatus, estado_tel1, estado_tel2, estado_tel3 
-            FROM clientes WHERE telefonista_asignada = {PH}
+            SELECT DISTINCT c.rfc, c.nombre, c.apellido, c.tel1, c.tel2, c.tel3, c.sector, c.poliza, c.dividendos, c.ult_fecha_asignacion, c.edad, c.estatus, c.estado_tel1, c.estado_tel2, c.estado_tel3 
+            FROM clientes c
         """
+        if filtro_estatus_tel_tele == "🔁 No Contesta / Buzón":
+          q_t += " LEFT JOIN historial_llamadas h ON c.rfc = h.rfc_cliente"
+
+        q_t += f" WHERE c.telefonista_asignada = {PH}"
         params_t = [usuario]
         conds_t = []
 
         if filtro_estatus_tel_tele != "Todos los estatus":
-          if "No Contesta" in filtro_estatus_tel_tele:
-            # FILTRO ESTRICTO: Solo busca en los estados de los 3 teléfonos
+          if filtro_estatus_tel_tele == "🔁 No Contesta / Buzón":
+            # Filtro combinado: checa tanto los campos de estado en clientes como el historial de llamadas
             conds_t.append(
-                "(estado_tel1 = 'No Contesta / Buzón' OR estado_tel2 = 'No Contesta / Buzón' OR estado_tel3 = 'No Contesta / Buzón')"
+                """(
+                    c.estado_tel1 = 'No Contesta / Buzón' 
+                    OR c.estado_tel2 = 'No Contesta / Buzón' 
+                    OR c.estado_tel3 = 'No Contesta / Buzón'
+                    OR h.accion = 'No Contesta / Buzón'
+                )"""
             )
           else:
             val_busq_est = filtro_estatus_tel_tele
             conds_t.append(
-                "(estado_tel1 = ? OR estado_tel2 = ? OR estado_tel3 = ?)"
+                "(c.estado_tel1 = ? OR c.estado_tel2 = ? OR c.estado_tel3 = ?)"
                 if ES_SQLITE
-                else "(estado_tel1 = %s OR estado_tel2 = %s OR estado_tel3 = %s)"
+                else "(c.estado_tel1 = %s OR c.estado_tel2 = %s OR c.estado_tel3 = %s)"
             )
             params_t.extend([val_busq_est] * 3)
 
         if filtrar_fa_tele:
-          conds_t.append("ult_fecha_asignacion = ?" if ES_SQLITE else "ult_fecha_asignacion = %s")
+          conds_t.append("c.ult_fecha_asignacion = ?" if ES_SQLITE else "c.ult_fecha_asignacion = %s")
           params_t.append(str(fa_tele_esp))
 
         if busqueda_tele:
           if ES_SQLITE:
-            conds_t.append("(rfc LIKE ? OR nombre LIKE ? OR apellido LIKE ? OR poliza LIKE ?)")
+            conds_t.append("(c.rfc LIKE ? OR c.nombre LIKE ? OR c.apellido LIKE ? OR c.poliza LIKE ?)")
           else:
-            conds_t.append("(rfc ILIKE %s OR nombre ILIKE %s OR apellido ILIKE %s OR poliza ILIKE %s)")
+            conds_t.append("(c.rfc ILIKE %s OR c.nombre ILIKE %s OR c.apellido ILIKE %s OR c.poliza ILIKE %s)")
           pt = f"%{busqueda_tele}%"
           params_t.extend([pt, pt, pt, pt])
 
@@ -2649,7 +2658,7 @@ else:
             else 0
         )
         
-        eficacia_cierre = f"{(df_ventas_asesor / asis_asesor * 100):.1f}%" if asis_asesor > 0 else "0.0%"
+        eficacia_cierre = f"{(df_ventas_asesor / asis_asesor * 100):.1f}%" if asistidas > 0 else "0.0%"
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Mis Citas del Día", tot_citas_asesor)
