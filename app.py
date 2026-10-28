@@ -439,7 +439,7 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
           st.text_input("TEL 3"),
       )
     with col2:
-      sector = st.text_input("Dependencia")
+      sector = st.selectbox("Dependencia / Mercado", ["Jubilado", "Jubilado 70"])
       poliza = st.text_input("Póliza")
       dividendos_dt = st.date_input(
           "Dividendos", value=obtener_ahora_mexico().date()
