@@ -549,6 +549,9 @@ def modal_crear_prospecto(usuario_actual, rol_actual):
                     obs_asesor_f,
                     telefonista_asignada,
                     estatus,
+                    "Sin marcar",
+                    "Sin marcar",
+                    "Sin marcar",
                 ),
             )
         st.success(
