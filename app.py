@@ -409,7 +409,7 @@ def obtener_usuarios_por_rol(rol):
 
 
 def obtener_todos_los_usuarios_asignables():
-  roles = ["Telefonista", "Asesor", "Base de Datos"]
+  roles = ["Telefonista", "Asesor", "Base de Datos", "Administrador"]
   usuarios = []
   for r in roles:
     usuarios.extend(obtener_usuarios_por_rol(r))
@@ -1378,6 +1378,19 @@ else:
         if st.button("❌ Cerrar", use_container_width=True, key="c_ficha"):
           ejecutar_guardado_y_salto("cerrar")
 
+      # Botón de borrado directo desde la ficha para el Administrador
+      if rol == "Administrador":
+        col_del_ficha1, col_del_ficha2 = st.columns([3, 1])
+        with col_del_ficha2:
+          if st.button("🗑️ Eliminar Prospecto", key=f"btn_del_ficha_{rfc_actual}", use_container_width=True):
+            with engine.begin() as conn_del:
+              conn_del.exec_driver_sql(f"DELETE FROM clientes WHERE rfc = {PH}", (rfc_actual,))
+              conn_del.exec_driver_sql(f"DELETE FROM historial_llamadas WHERE rfc_cliente = {PH}", (rfc_actual,))
+              conn_del.exec_driver_sql(f"DELETE FROM citas WHERE rfc_cliente = {PH}", (rfc_actual,))
+            st.success(f"🗑️ Prospecto {rfc_actual} eliminado correctamente.")
+            st.session_state["prospecto_editar_rfc"] = None
+            st.rerun()
+
       st.markdown(
           f"""
           <div style="background-color: #e8f4f8; border-left: 6px solid #0072CE; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
@@ -1748,6 +1761,20 @@ else:
           renderizar_bloque_con_tabla(
               df_banco, key_suffix="banco", ocultar_tels=False
           )
+          
+          # Botón de eliminación masiva en Banco de Prospectos
+          rfcs_sel_banco = st.session_state.get("sel_rfcs_banco", [])
+          if rfcs_sel_banco:
+            st.markdown("---")
+            if st.button("🗑️ Eliminar Prospectos Seleccionados", key="btn_del_masivo_banco"):
+              with engine.begin() as conn_del_m:
+                for rfc_item in rfcs_sel_banco:
+                  conn_del_m.exec_driver_sql(f"DELETE FROM clientes WHERE rfc = {PH}", (rfc_item,))
+                  conn_del_m.exec_driver_sql(f"DELETE FROM historial_llamadas WHERE rfc_cliente = {PH}", (rfc_item,))
+                  conn_del_m.exec_driver_sql(f"DELETE FROM citas WHERE rfc_cliente = {PH}", (rfc_item,))
+              st.session_state["sel_rfcs_banco"] = []
+              st.success(f"🗑️ Se eliminaron {len(rfcs_sel_banco)} prospectos seleccionados.")
+              st.rerun()
 
       elif opcion == "3. Gestión y Asignación de Prospectos":
         st.header("🔄 Gestión y Asignación de Prospectos")
@@ -1951,12 +1978,13 @@ else:
           cant_sel = len(rfcs_sel_global)
 
           st.markdown("---")
-          st.subheader("⚡ Actualización y Asignación Masiva")
+          st.subheader("⚡ Actualización, Asignación y Eliminación Masiva")
           c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
           with c1:
             tele_destino = st.selectbox(
                 "Asignar a:",
                 obtener_todos_los_usuarios_asignables(),
+                key="tele_destino_masivo"
             )
           with c2:
             estatus_masivo = st.selectbox(
@@ -1967,29 +1995,45 @@ else:
                     "En Seguimiento",
                     "No Interesado",
                 ],
+                key="estatus_masivo_sel"
             )
           with c3:
-            nueva_fecha_asig = st.date_input("Fecha Asignación Masiva:", value=obtener_ahora_mexico().date())
+            nueva_fecha_asig = st.date_input("Fecha Asignación Masiva:", value=obtener_ahora_mexico().date(), key="fecha_masiva_sel")
           with c4:
             st.metric("Seleccionados", cant_sel)
 
-          if st.button("🚀 Aplicar Cambios Masivos"):
-            if cant_sel == 0:
-              st.warning("⚠️ Marca la casilla 'Seleccionar' en la tabla.")
-            else:
-              f_asig_str = nueva_fecha_asig.strftime("%Y-%m-%d")
-              with engine.begin() as conn_sql:
-                for rfc_item in rfcs_sel_global:
-                  conn_sql.exec_driver_sql(
-                      f"UPDATE clientes SET telefonista_asignada = {PH},"
-                      f" estatus = {PH}, ult_fecha_asignacion = {PH} WHERE rfc = {PH}",
-                      (tele_destino, estatus_masivo, f_asig_str, rfc_item),
-                  )
-              st.session_state["sel_rfcs_gestion_admin"] = []
-              st.success(
-                  f"✅ ¡Se actualizaron {cant_sel} prospectos correctamente con fecha {f_asig_str}!"
-              )
-              st.rerun()
+          col_btn_m1, col_btn_m2 = st.columns(2)
+          with col_btn_m1:
+            if st.button("🚀 Aplicar Cambios Masivos", use_container_width=True):
+              if cant_sel == 0:
+                st.warning("⚠️ Marca la casilla 'Seleccionar' en la tabla.")
+              else:
+                f_asig_str = nueva_fecha_asig.strftime("%Y-%m-%d")
+                with engine.begin() as conn_sql:
+                  for rfc_item in rfcs_sel_global:
+                    conn_sql.exec_driver_sql(
+                        f"UPDATE clientes SET telefonista_asignada = {PH},"
+                        f" estatus = {PH}, ult_fecha_asignacion = {PH} WHERE rfc = {PH}",
+                        (tele_destino, estatus_masivo, f_asig_str, rfc_item),
+                    )
+                st.session_state["sel_rfcs_gestion_admin"] = []
+                st.success(
+                    f"✅ ¡Se actualizaron {cant_sel} prospectos correctamente con fecha {f_asig_str}!"
+                )
+                st.rerun()
+          with col_btn_m2:
+            if st.button("🗑️ Eliminar Prospectos Seleccionados", key="btn_del_masivo_gestion", use_container_width=True):
+              if cant_sel == 0:
+                st.warning("⚠️ Marca la casilla 'Seleccionar' en la tabla para eliminar.")
+              else:
+                with engine.begin() as conn_del_gm:
+                  for rfc_item in rfcs_sel_global:
+                    conn_del_gm.exec_driver_sql(f"DELETE FROM clientes WHERE rfc = {PH}", (rfc_item,))
+                    conn_del_gm.exec_driver_sql(f"DELETE FROM historial_llamadas WHERE rfc_cliente = {PH}", (rfc_item,))
+                    conn_del_gm.exec_driver_sql(f"DELETE FROM citas WHERE rfc_cliente = {PH}", (rfc_item,))
+                st.session_state["sel_rfcs_gestion_admin"] = []
+                st.success(f"🗑️ Se eliminaron {cant_sel} prospectos seleccionados correctamente.")
+                st.rerun()
 
       elif opcion == "4. Reporte de Citas y Actividad":
         st.header("📊 Reporte General de Citas y Actividad")
@@ -2215,7 +2259,7 @@ else:
                 except Exception:
                   st.error("⚠️ El usuario ya existe.")
         with tab_e:
-          st.markdown("##### ✏️ Modificar Datos o Contraseña de Usuarios")
+          st.markdown("##### ✏️ Modificar Datos, Contraseña o Eliminar Usuarios")
           df_u = pd.read_sql(
               "SELECT id, usuario, rol, nombre_completo, apellido, telefono,"
               " direccion FROM usuarios",
@@ -2317,12 +2361,19 @@ else:
                   st.rerun()
 
                 if eliminar:
-                  with engine.begin() as conn_sql:
-                    conn_sql.exec_driver_sql(
-                        f"DELETE FROM usuarios WHERE usuario = {PH}",
-                        (ur["usuario"],),
+                  usuario_eliminado = ur["usuario"]
+                  with engine.begin() as conn_sql_del:
+                    # Reasignar todos los prospectos del usuario eliminado a 'admin'
+                    conn_sql_del.exec_driver_sql(
+                        f"UPDATE clientes SET telefonista_asignada = 'admin' WHERE telefonista_asignada = {PH}",
+                        (usuario_eliminado,)
                     )
-                  st.success(f"🗑️ Usuario '{ur['usuario']}' eliminado.")
+                    # Eliminar el usuario
+                    conn_sql_del.exec_driver_sql(
+                        f"DELETE FROM usuarios WHERE usuario = {PH}",
+                        (usuario_eliminado,),
+                    )
+                  st.success(f"🗑️ Usuario '{usuario_eliminado}' eliminado. Sus prospectos asignados pasaron automáticamente a 'admin'.")
                   st.rerun()
 
       elif opcion == "6. Dashboard y Estadísticas de Asesores":
